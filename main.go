@@ -9,6 +9,7 @@ import (
 
 var (
 	device = "gs101"
+	header = 4080
 )
 
 func main() {
@@ -109,7 +110,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			bl2 = bl2[:4096]
+			bl2 = bl2[:header]
 			if err := dnw.SendOverDnw(apModel, "BL2", bl2); err != nil {
 				fmt.Println("Failed to send BL2 header:", err)
 				dnw.Close()
@@ -123,7 +124,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			bl2 = bl2[4096:]
+			bl2 = bl2[header:]
 			if err := dnw.SendOverDnw(apModel, "BL2B", bl2); err != nil {
 				fmt.Println("Failed to send BL2 body:", err)
 				dnw.Close()
@@ -137,7 +138,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			abl = abl[:4096]
+			abl = abl[:header]
 			if err := dnw.SendOverDnw(apModel, "ABL", abl); err != nil {
 				fmt.Println("Failed to send ABL header:", err)
 				dnw.Close()
@@ -151,7 +152,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			abl = abl[4096:]
+			abl = abl[header:]
 			if err := dnw.SendOverDnw(apModel, "ABLB", abl); err != nil {
 				fmt.Println("Failed to send ABL body:", err)
 				dnw.Close()
@@ -165,7 +166,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			bl31 = bl31[:4096]
+			bl31 = bl31[:header]
 			if err := dnw.SendOverDnw(apModel, "BL31", bl31); err != nil {
 				fmt.Println("Failed to send BL31 header:", err)
 				dnw.Close()
@@ -179,7 +180,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			bl31 = bl31[4096:]
+			bl31 = bl31[header:]
 			if err := dnw.SendOverDnw(apModel, "BL3B", bl31); err != nil {
 				fmt.Println("Failed to send BL31 body:", err)
 				dnw.Close()
@@ -206,7 +207,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			trusty = trusty[:4096]
+			trusty = trusty[:header]
 			if err := dnw.SendOverDnw(apModel, "TZSW", trusty); err != nil {
 				fmt.Println("Failed to send TZSW header:", err)
 				dnw.Close()
@@ -220,7 +221,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			trusty = trusty[4096:]
+			trusty = trusty[header:]
 			if err := dnw.SendOverDnw(apModel, "TZSB", trusty); err != nil {
 				fmt.Println("Failed to send TZSW body:", err)
 				dnw.Close()
@@ -234,7 +235,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			ldfw = ldfw[:4096]
+			ldfw = ldfw[:header]
 			if err := dnw.SendOverDnw(apModel, "LDFW", ldfw); err != nil {
 				fmt.Println("Failed to send LDFW header:", err)
 				dnw.Close()
@@ -248,7 +249,7 @@ func main() {
 				dnw.Close()
 				continue
 			}
-			ldfw = ldfw[4096:]
+			ldfw = ldfw[header:]
 			if err := dnw.SendOverDnw(apModel, "LDFB", ldfw); err != nil {
 				fmt.Println("Failed to send LDFW body:", err)
 				dnw.Close()
