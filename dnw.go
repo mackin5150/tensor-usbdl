@@ -30,6 +30,8 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		return nil, fmt.Errorf("dnw: closed")
 	}
 
+	d.Write([]byte("\n")) //Triggers a faster response for the next read
+
 	bytes := make([]byte, 0)
 	for {
 		p := make([]byte, 1)
@@ -40,7 +42,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		if n != 1 {
 			continue
 		}
-		if c := string(p); c == "\n" || c == "\r" {
+		if p[0] == '\n' {
 			if len(bytes) == 0 {
 				continue
 			}
@@ -48,8 +50,6 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		}
 		bytes = append(bytes, p...)
 	}
-
-	d.Write([]byte("\n")) //Triggers a faster response for the next read
 
 	return NewMessage(string(bytes)), nil
 }
@@ -60,19 +60,33 @@ func (d *DNW) WriteCommand(c *Command) error {
 		return nil
 	}
 
+	toWrite := 512
 	wrote := 0
 	for {
-		n, err := d.Write(cmd[wrote:])
+		if wrote+toWrite >= len(cmd) {
+			toWrite -= (wrote + toWrite) - len(cmd)
+		}
+		n, err := d.Write(cmd[wrote : wrote+toWrite])
 		if err != nil {
-			return err
+			return fmt.Errorf("dnw: incomplete write (%d/%d bytes): %v", wrote, len(cmd), err)
 		}
 		wrote += n
-		if wrote == len(cmd) {
+		if wrote >= len(cmd) {
 			break
 		}
 	}
 	if wrote != len(cmd) {
-		return fmt.Errorf("dnw: incomplete write")
+		return fmt.Errorf("dnw: incomplete write (%d/%d bytes)", wrote, len(cmd))
+	}
+	return nil
+}
+
+func (d *DNW) Reset() error {
+	if err := d.port.ResetInputBuffer(); err != nil {
+		return nil
+	}
+	if err := d.port.ResetOutputBuffer(); err != nil {
+		return nil
 	}
 	return nil
 }

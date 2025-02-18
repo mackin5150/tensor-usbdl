@@ -21,8 +21,7 @@ func (c *Command) Bytes() []byte {
 	bytes := crunchio.NewBuffer(c.cmd)
 
 	if c.cmd != "" {
-		bytes.Write([]byte{0x1B})  //ESC
-		bytes.Write([]byte(c.cmd)) //Usually 3 bytes
+		bytes.Write([]byte(c.cmd)) //Usually 4 bytes, i.e. {ESC}DNW
 
 		length := int32(4 + int(bytes.ByteCapacity()) + len(c.data))
 		if len(c.crc) > 0 {
@@ -31,7 +30,9 @@ func (c *Command) Bytes() []byte {
 		bytes.WriteAbstract(length)
 	}
 
-	bytes.Write(c.data)
+	if len(c.data) > 0 {
+		bytes.Write(c.data)
+	}
 
 	if c.cmd != "" && len(c.crc) > 0 {
 		bytes.Write(c.crc)

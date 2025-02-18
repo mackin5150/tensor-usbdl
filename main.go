@@ -9,14 +9,13 @@ import (
 )
 
 var (
-	header = 0x1000
-	//header = 4096
-	crc []byte
-	src = "sources"
-	dpm = ""
-	bl1 = "bl1.img"
-	pbl = "pbl.img"
-	abl = "abl.img"
+	header = 4096
+	crc    []byte
+	src    = "sources"
+	dpm    = ""
+	bl1    = "bl1.img"
+	pbl    = "pbl.img"
+	abl    = "abl.img"
 )
 
 func main() {
@@ -52,7 +51,8 @@ func main() {
 			}
 
 			switch msg.Type() {
-			case "C", string('\x1B'), string('\x00'): //Ignore, possibly marks end of request?
+			case "C", "\x1B", string('\x00'):
+				//Ignore, possibly marks end of request?
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
@@ -114,7 +114,7 @@ func main() {
 			case "error":
 				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
 			default:
-				fmt.Println("Unknown message type:", msg.Type(), fmt.Sprintf("(%x)", []byte(msg.Type())))
+				fmt.Println("Unknown message type:", msg.Type(), fmt.Sprintf("(%0x)", []byte(msg.Type())))
 				fmt.Println("DEBUG:", msg)
 			}
 
@@ -166,7 +166,7 @@ func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
 			sumBytes.Buffer().WriteU16LENext([]uint16{sum})
 			checksum = sumBytes.Bytes()
 		}
-		return dnw.WriteCommand(NewCommand("DNW", bytes, checksum))
+		return dnw.WriteCommand(NewCommand("\x1BDNW", bytes, checksum))
 	}
 	return dnw.WriteCommand(NewCommand("", bytes, nil))
 }
