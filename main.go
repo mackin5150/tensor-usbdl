@@ -8,19 +8,24 @@ import (
 )
 
 var (
+	header = 0xFF0
+	//header = 4096
 	crc []byte
 	src = "sources"
 	dpm = ""
 	bl1 = "bl1.img"
 	pbl = "pbl.img"
+	abl = "abl.img"
 )
 
 func main() {
+	pflag.IntVarP(&header, "header", "h", header, "Number of bytes to send as header before body for split images")
 	pflag.BytesHexVarP(&crc, "crc", "c", crc, "CRC to use for DNW image commands instead of calculating one")
 	pflag.StringVarP(&src, "src", "i", src, "Directory with bootloader images to serve")
 	pflag.StringVarP(&dpm, "dpm", "d", dpm, "DPM image to serve instead of empty image")
 	pflag.StringVarP(&bl1, "bl1", "1", bl1, "bl1 image to serve")
 	pflag.StringVarP(&pbl, "epbl", "p", pbl, "EPBL image to serve")
+	pflag.StringVarP(&abl, "abl", "a", abl, "ABL image to serve")
 	pflag.Parse()
 
 	for {
@@ -70,7 +75,7 @@ func main() {
 						if dpm != "" {
 							err = writeFile(dnw, src+"/"+dpm)
 						} else {
-							err = writeRaw(dnw, make([]byte, 4080))
+							err = writeRaw(dnw, make([]byte, 4096))
 						}
 						if err != nil {
 							fmt.Println("Error writing DPM:", err)
@@ -84,6 +89,16 @@ func main() {
 						err = writeFile(dnw, src+"/"+bl1)
 						if err != nil {
 							fmt.Println("Error writing bl1:", err)
+						}
+					case "ABL":
+						err = writeFileHead(dnw, src+"/"+abl)
+						if err != nil {
+							fmt.Println("Error writing ABL header:", err)
+						}
+					case "ABLB":
+						err = writeFileBody(dnw, src+"/"+abl)
+						if err != nil {
+							fmt.Println("Error writing ABL body:", err)
 						}
 					}
 
@@ -118,6 +133,22 @@ func writeFile(dnw *DNW, file string) error {
 		return err
 	}
 	return writeRaw(dnw, bytes)
+}
+
+func writeFileHead(dnw *DNW, file string) error {
+	bytes, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	return writeRaw(dnw, bytes[:header])
+}
+
+func writeFileBody(dnw *DNW, file string) error {
+	bytes, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	return writeRaw(dnw, bytes[header:])
 }
 
 func writeRaw(dnw *DNW, bytes []byte) error {
