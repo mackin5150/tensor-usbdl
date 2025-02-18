@@ -42,7 +42,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		if n != 1 {
 			continue
 		}
-		if p[0] == '\n' {
+		if p[0] == '\n' || p[0] == '\r' || p[0] == '\x00' {
 			if len(bytes) == 0 {
 				continue
 			}

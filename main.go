@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/JoshuaDoes/crunchio"
 	"github.com/spf13/pflag"
@@ -28,11 +29,13 @@ func main() {
 	pflag.StringVarP(&abl, "abl", "a", abl, "ABL image to serve")
 	pflag.Parse()
 
+	lastSent := ""
 	for {
 		var err error
 		var dnw *DNW
 		toldLive := false
 		justSent := ""
+		var lastTrace []string
 
 		fmt.Println("")
 		fmt.Println("Scanning for Pixel ROM Recovery...")
@@ -68,7 +71,7 @@ func main() {
 					if justSent == msg.Argument() {
 						continue
 					}
-					fmt.Println("<", msg.Argument())
+					fmt.Println("<-", msg.Argument())
 
 					switch msg.Argument() {
 					case "DPM":
@@ -104,18 +107,50 @@ func main() {
 						fmt.Println("DEBUG:", msg)
 					}
 
+					lastSent = msg.Argument()
 					if err == nil {
-						justSent = msg.Argument()
-						fmt.Println(">", justSent)
+						justSent = lastSent
+						fmt.Println("->", justSent)
 					}
 				}
 			case "irom_booting_failure":
-				fmt.Println("iROM boot failure:", msg.Device())
+				trace := make([]string, 15)
+				var codeMsg *Message
+				for i := 0; i < len(trace); i++ {
+					codeMsg, err = dnw.ReadMsg()
+					if err != nil {
+						break
+					}
+					trace[i] = codeMsg.Type()
+				}
+				if err != nil {
+					fmt.Println("Error reading BootROM boot failure trace:", err)
+				} else {
+					if lastTrace != nil {
+						diff := false
+						for i := 0; i < len(trace); i++ {
+							if trace[i] != lastTrace[i] {
+								diff = true
+								break
+							}
+						}
+						if !diff {
+							break
+						}
+					}
+					lastTrace = trace
+
+					prefix := "\n> "
+					fmt.Printf("BootROM error booting")
+					if lastSent != "" {
+						fmt.Printf(" %s", lastSent)
+					}
+					fmt.Printf(":%s%s\n", prefix, strings.Join(trace, prefix))
+				}
 			case "error":
 				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
 			default:
 				fmt.Println("Unknown message type:", msg.Type(), fmt.Sprintf("(%0x)", []byte(msg.Type())))
-				fmt.Println("DEBUG:", msg)
 			}
 
 			if err != nil {
