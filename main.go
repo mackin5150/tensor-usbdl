@@ -52,7 +52,7 @@ func main() {
 
 			switch msg.Type() {
 			default:
-				//fmt.Println("Unknown message type:", msg.Type())
+				fmt.Println("Unknown message type:", msg.Type())
 			case "C", string('\x1B'): //Ignore, possibly marks end of request?
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
@@ -69,34 +69,35 @@ func main() {
 					if justSent == msg.Argument() {
 						continue
 					}
+					fmt.Println("<", msg.Argument())
 
 					switch msg.Argument() {
 					case "DPM":
 						if dpm != "" {
-							err = writeFile(dnw, src+"/"+dpm)
+							err = writeFile(dnw, src+"/"+dpm, true)
 						} else {
-							err = writeRaw(dnw, make([]byte, 4096))
+							err = writeRaw(dnw, make([]byte, 4096), true)
 						}
 						if err != nil {
 							fmt.Println("Error writing DPM:", err)
 						}
 					case "EPBL":
-						err = writeFile(dnw, src+"/"+pbl)
+						err = writeFile(dnw, src+"/"+pbl, false)
 						if err != nil {
 							fmt.Println("Error writing EPBL:", err)
 						}
 					case "bl1":
-						err = writeFile(dnw, src+"/"+bl1)
+						err = writeFile(dnw, src+"/"+bl1, false)
 						if err != nil {
 							fmt.Println("Error writing bl1:", err)
 						}
 					case "ABL":
-						err = writeFileHead(dnw, src+"/"+abl)
+						err = writeFileHead(dnw, src+"/"+abl, false)
 						if err != nil {
 							fmt.Println("Error writing ABL header:", err)
 						}
 					case "ABLB":
-						err = writeFileBody(dnw, src+"/"+abl)
+						err = writeFileBody(dnw, src+"/"+abl, false)
 						if err != nil {
 							fmt.Println("Error writing ABL body:", err)
 						}
@@ -104,7 +105,7 @@ func main() {
 
 					if err == nil {
 						justSent = msg.Argument()
-						fmt.Println("-", justSent)
+						fmt.Println(">", justSent)
 					}
 				}
 			case "irom_booting_failure":
@@ -127,38 +128,41 @@ func main() {
 	}
 }
 
-func writeFile(dnw *DNW, file string) error {
+func writeFile(dnw *DNW, file string, asCmd bool) error {
 	bytes, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes)
+	return writeRaw(dnw, bytes, asCmd)
 }
 
-func writeFileHead(dnw *DNW, file string) error {
+func writeFileHead(dnw *DNW, file string, asCmd bool) error {
 	bytes, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes[:header])
+	return writeRaw(dnw, bytes[:header], asCmd)
 }
 
-func writeFileBody(dnw *DNW, file string) error {
+func writeFileBody(dnw *DNW, file string, asCmd bool) error {
 	bytes, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes[header:])
+	return writeRaw(dnw, bytes[header:], asCmd)
 }
 
-func writeRaw(dnw *DNW, bytes []byte) error {
-	checksum := crc
-	if checksum == nil {
-		sum := uint16(0)
-		for i := 0; i < len(bytes); i++ {
-			sum += uint16(bytes[i])
+func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
+	if asCmd {
+		checksum := crc
+		if checksum == nil {
+			sum := uint16(0)
+			for i := 0; i < len(bytes); i++ {
+				sum += uint16(bytes[i])
+			}
+			checksum = []byte{byte(sum & 0xFF), byte(sum >> 8)}
 		}
-		checksum = []byte{byte(sum & 0xFF), byte(sum >> 8)}
+		return dnw.WriteCommand(NewCommand("DNW", bytes, checksum))
 	}
-	return dnw.WriteCommand(NewCommand("DNW", bytes, checksum))
+	return dnw.WriteCommand(NewCommand("", bytes, nil))
 }

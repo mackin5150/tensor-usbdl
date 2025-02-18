@@ -20,17 +20,20 @@ func NewCommand(cmd string, data, crc []byte) *Command {
 func (c *Command) Bytes() []byte {
 	bytes := crunchio.NewBuffer(c.cmd)
 
-	bytes.Write([]byte{0x1B})  //ESC
-	bytes.Write([]byte(c.cmd)) //Usually 3 bytes
+	if c.cmd != "" {
+		bytes.Write([]byte{0x1B})  //ESC
+		bytes.Write([]byte(c.cmd)) //Usually 3 bytes
 
-	length := int32(4 + int(bytes.ByteCapacity()) + len(c.data))
-	if len(c.crc) > 0 {
-		length += int32(len(c.crc))
+		length := int32(4 + int(bytes.ByteCapacity()) + len(c.data))
+		if len(c.crc) > 0 {
+			length += int32(len(c.crc))
+		}
+		bytes.WriteAbstract(length)
 	}
-	bytes.WriteAbstract(length)
 
 	bytes.Write(c.data)
-	if len(c.crc) > 0 {
+
+	if c.cmd != "" && len(c.crc) > 0 {
 		bytes.Write(c.crc)
 	}
 
