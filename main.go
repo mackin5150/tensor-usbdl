@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/JoshuaDoes/crunchio"
 	"github.com/spf13/pflag"
 )
 
 var (
-	header = 0xFF0
+	header = 0x1000
 	//header = 4096
 	crc []byte
 	src = "sources"
@@ -51,7 +52,7 @@ func main() {
 			}
 
 			switch msg.Type() {
-			case "C", string('\x1B'): //Ignore, possibly marks end of request?
+			case "C", string('\x1B'), string('\x00'): //Ignore, possibly marks end of request?
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
@@ -99,6 +100,8 @@ func main() {
 						if err != nil {
 							fmt.Println("Error writing ABL body:", err)
 						}
+					default:
+						fmt.Println("DEBUG:", msg)
 					}
 
 					if err == nil {
@@ -111,7 +114,8 @@ func main() {
 			case "error":
 				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
 			default:
-				fmt.Println("Unknown message type:", msg.Type())
+				fmt.Println("Unknown message type:", msg.Type(), fmt.Sprintf("(%x)", []byte(msg.Type())))
+				fmt.Println("DEBUG:", msg)
 			}
 
 			if err != nil {
@@ -123,8 +127,6 @@ func main() {
 		if err := dnw.Close(); err != nil {
 			fmt.Println("Error closing connection:", err)
 		}
-		dnw = nil
-		err = nil
 	}
 }
 
@@ -160,7 +162,9 @@ func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
 			for i := 0; i < len(bytes); i++ {
 				sum += uint16(bytes[i])
 			}
-			checksum = []byte{byte(sum & 0xFF), byte(sum >> 8)}
+			sumBytes := crunchio.NewBuffer("crc", make([]byte, 2))
+			sumBytes.Buffer().WriteU16LENext([]uint16{sum})
+			checksum = sumBytes.Bytes()
 		}
 		return dnw.WriteCommand(NewCommand("DNW", bytes, checksum))
 	}
