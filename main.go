@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/JoshuaDoes/crunchio"
 	"github.com/spf13/pflag"
@@ -111,6 +112,8 @@ func main() {
 					if err == nil {
 						justSent = lastSent
 						fmt.Println("->", justSent)
+
+						time.Sleep(time.Second * 1)
 					}
 				}
 			case "irom_booting_failure":
