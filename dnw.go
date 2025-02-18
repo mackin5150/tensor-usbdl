@@ -49,6 +49,8 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		bytes = append(bytes, p...)
 	}
 
+	d.Write([]byte("\n")) //Triggers a faster response for the next read
+
 	return NewMessage(string(bytes)), nil
 }
 

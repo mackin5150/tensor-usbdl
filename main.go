@@ -51,8 +51,6 @@ func main() {
 			}
 
 			switch msg.Type() {
-			default:
-				fmt.Println("Unknown message type:", msg.Type())
 			case "C", string('\x1B'): //Ignore, possibly marks end of request?
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
@@ -112,6 +110,8 @@ func main() {
 				fmt.Println("iROM boot failure:", msg.Device())
 			case "error":
 				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
+			default:
+				fmt.Println("Unknown message type:", msg.Type())
 			}
 
 			if err != nil {
