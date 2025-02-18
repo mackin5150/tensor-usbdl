@@ -54,7 +54,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 	return NewMessage(string(bytes)), nil
 }
 
-func (d *DNW) WriteCommand(c *Command) error {
+func (d *DNW) WriteCmd(c *Command) error {
 	cmd := c.Bytes()
 	if len(cmd) == 0 {
 		return nil

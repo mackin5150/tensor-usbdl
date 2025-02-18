@@ -201,7 +201,7 @@ func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
 			sumBytes.Buffer().WriteU16LENext([]uint16{sum})
 			checksum = sumBytes.Bytes()
 		}
-		return dnw.WriteCommand(NewCommand("\x1BDNW", bytes, checksum))
+		return dnw.WriteCmd(NewCommand("\x1BDNW", bytes, checksum))
 	}
-	return dnw.WriteCommand(NewCommand("", bytes, nil))
+	return dnw.WriteCmd(NewCommand("", bytes, nil))
 }
