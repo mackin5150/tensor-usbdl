@@ -1,7 +1,5 @@
 # Bootloader sources
-gs101
-gs201
-gs301
+sources
 
 # Output binaries
 tensor-usbdl
