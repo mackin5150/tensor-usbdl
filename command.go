@@ -4,6 +4,10 @@ import (
 	"github.com/JoshuaDoes/crunchio"
 )
 
+var (
+	cmdStop = NewCommand("\x1BDNW", nil, []byte("\x01\x00"))
+)
+
 type Command struct {
 	cmd       string
 	crc, data []byte

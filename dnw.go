@@ -78,6 +78,7 @@ func (d *DNW) WriteCmd(c *Command) error {
 	if wrote != len(cmd) {
 		return fmt.Errorf("dnw: incomplete write (%d/%d bytes)", wrote, len(cmd))
 	}
+
 	return nil
 }
 

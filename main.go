@@ -14,20 +14,30 @@ var (
 	header = 4096
 	crc    []byte
 	src    = "sources"
-	dpm    = ""
 	bl1    = "bl1.img"
 	pbl    = "pbl.img"
+	bl2    = "bl2.img"
 	abl    = "abl.img"
+	bl31   = "bl31.img"
+	gsa    = "gsa.img"
+	tzsw   = "tzsw.img"
+	ldfw   = "ldfw.img"
+	dpm    = ""
 )
 
 func main() {
 	pflag.IntVarP(&header, "header", "h", header, "Number of bytes to send as header before body for split images")
 	pflag.BytesHexVarP(&crc, "crc", "c", crc, "CRC to use for DNW image commands instead of calculating one")
 	pflag.StringVarP(&src, "src", "i", src, "Directory with bootloader images to serve")
-	pflag.StringVarP(&dpm, "dpm", "d", dpm, "DPM image to serve instead of empty image")
 	pflag.StringVarP(&bl1, "bl1", "1", bl1, "bl1 image to serve")
-	pflag.StringVarP(&pbl, "epbl", "p", pbl, "EPBL image to serve")
+	pflag.StringVarP(&pbl, "pbl", "p", pbl, "PBL image to serve")
+	pflag.StringVarP(&bl2, "bl2", "2", bl2, "BL2 image to serve")
 	pflag.StringVarP(&abl, "abl", "a", abl, "ABL image to serve")
+	pflag.StringVarP(&bl31, "bl31", "3", bl31, "BL31 image to serve")
+	pflag.StringVarP(&gsa, "gsa", "g", gsa, "GSA image to serve")
+	pflag.StringVarP(&tzsw, "tzsw", "t", tzsw, "TZSW image to serve")
+	pflag.StringVarP(&ldfw, "ldfw", "l", ldfw, "LDFW image to serve")
+	pflag.StringVarP(&dpm, "dpm", "d", dpm, "DPM image to serve instead of empty image")
 	pflag.Parse()
 
 	lastSent := ""
@@ -55,8 +65,10 @@ func main() {
 			}
 
 			switch msg.Type() {
-			case "C", "\x1B", string('\x00'):
+			case "\x1B", string('\x00'):
 				//Ignore, possibly marks end of request?
+			case "C":
+				fmt.Println("Received C byte")
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
@@ -64,6 +76,7 @@ func main() {
 				}
 			case "eub":
 				if !toldLive {
+					fmt.Println("Received message but not yet alive:", msg)
 					continue
 				}
 
@@ -114,6 +127,8 @@ func main() {
 						fmt.Println("->", justSent)
 
 						time.Sleep(time.Second * 1)
+					} else {
+						dnw.WriteCmd(cmdStop)
 					}
 				}
 			case "irom_booting_failure":
