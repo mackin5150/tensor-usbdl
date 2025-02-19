@@ -2,18 +2,23 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
 )
 
 type DNW struct {
-	port serial.Port
+	mutex sync.Mutex
+	port  serial.Port
 }
 
 func NewDNW() (*DNW, error) {
 	mode := &serial.Mode{BaudRate: 9600, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
-	ports := []string{"/dev/ttyACM0", "COM4"}
+	ports := []string{
+		"/dev/ttyACM0", "COM4", //Google Tensor
+		"COM3", //Samsung Exynos
+	}
 	for i := 0; i < len(ports); i++ {
 		ser, err := serial.Open(ports[i], mode)
 		if err != nil {
@@ -30,7 +35,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		return nil, fmt.Errorf("dnw: closed")
 	}
 
-	d.Write([]byte("\n")) //Triggers a faster response for the next read
+	//d.Write([]byte("\n")) //Triggers a faster response for the next read
 
 	bytes := make([]byte, 0)
 	for {
@@ -107,6 +112,8 @@ func (d *DNW) Read(p []byte) (n int, err error) {
 	if d.port == nil {
 		return 0, fmt.Errorf("dnw: closed")
 	}
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 	if err := d.port.Drain(); err != nil {
 		return 0, err
 	}
@@ -117,6 +124,8 @@ func (d *DNW) Write(p []byte) (n int, err error) {
 	if d.port == nil {
 		return 0, fmt.Errorf("dnw: closed")
 	}
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 	if n, err = d.port.Write(p); err != nil {
 		return n, err
 	}

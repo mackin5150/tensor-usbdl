@@ -23,24 +23,43 @@ func NewCommand(cmd string, data, crc []byte) *Command {
 
 func (c *Command) Bytes() []byte {
 	bytes := crunchio.NewBuffer(c.cmd)
-
-	if c.cmd != "" {
-		bytes.Write([]byte(c.cmd)) //Usually 4 bytes, i.e. {ESC}DNW
-
-		length := int32(4 + int(bytes.ByteCapacity()) + len(c.data))
-		if len(c.crc) > 0 {
-			length += int32(len(c.crc))
-		}
-		bytes.WriteAbstract(length)
+	if c.CmdLen() > 0 {
+		bytes.Write(c.Cmd()) //Usually 4 bytes, i.e. {ESC}DNW
+		bytes.WriteAbstract(int32(4 + c.CmdLen() + c.DataLen() + c.CRCLen()))
 	}
-
-	if len(c.data) > 0 {
-		bytes.Write(c.data)
+	if c.DataLen() > 0 {
+		bytes.Write(c.Data())
 	}
-
-	if c.cmd != "" && len(c.crc) > 0 {
-		bytes.Write(c.crc)
+	if c.CRCLen() > 0 {
+		bytes.Write(c.CRC())
 	}
-
 	return bytes.Bytes()
+}
+
+func (c *Command) Cmd() []byte {
+	return []byte(c.cmd)
+}
+
+func (c *Command) CRC() []byte {
+	return c.crc
+}
+
+func (c *Command) Data() []byte {
+	return c.data
+}
+
+func (c *Command) Len() int {
+	return len(c.Bytes())
+}
+
+func (c *Command) CmdLen() int {
+	return len(c.Cmd())
+}
+
+func (c *Command) CRCLen() int {
+	return len(c.CRC())
+}
+
+func (c *Command) DataLen() int {
+	return len(c.Data())
 }

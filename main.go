@@ -44,19 +44,29 @@ func main() {
 	for {
 		var err error
 		var dnw *DNW
-		toldLive := false
 		justSent := ""
+		canWrite := true
+		toldLive := false
+		timeLive := time.Now()
 		var lastTrace []string
 
 		fmt.Println("")
 		fmt.Println("Scanning for Pixel ROM Recovery...")
 		for {
+			scanStart := time.Now()
 			dnw, err = NewDNW()
 			if err == nil {
+				scanSince := time.Since(scanStart)
+				timeLive = scanStart
+				fmt.Printf("Found Pixel ROM Recovery after %dms since connection\n", scanSince.Milliseconds())
 				break
 			}
 		}
 		fmt.Println("Connected to Pixel ROM Recovery!")
+
+		//https://github.com/coreos/dev-util/blob/1cb32a9414c6c6085519657dccaff18fe2a51dd7/host/lib/write_firmware.py#L501
+		//BootROM needs roughly 200ms to be ready for USB download
+		time.Sleep(time.Millisecond * 500)
 
 		for {
 			msg, err := dnw.ReadMsg()
@@ -65,10 +75,9 @@ func main() {
 			}
 
 			switch msg.Type() {
-			case "\x1B", string('\x00'):
+			case "\x1B", string('\x00'), "C":
 				//Ignore, possibly marks end of request?
-			case "C":
-				fmt.Println("Received C byte")
+				fmt.Println("Received control bit:", msg.String())
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
@@ -82,7 +91,7 @@ func main() {
 
 				switch msg.Command() {
 				case "req":
-					if justSent == msg.Argument() {
+					if !canWrite || justSent == msg.Argument() {
 						continue
 					}
 					fmt.Println("<-", msg.Argument())
@@ -100,7 +109,7 @@ func main() {
 					case "EPBL":
 						err = writeFile(dnw, src+"/"+pbl, false)
 						if err != nil {
-							fmt.Println("Error writing EPBL:", err)
+							fmt.Println("Error writing PBL:", err)
 						}
 					case "bl1":
 						err = writeFile(dnw, src+"/"+bl1, false)
@@ -126,10 +135,18 @@ func main() {
 						justSent = lastSent
 						fmt.Println("->", justSent)
 
+						canWrite = false
 						time.Sleep(time.Second * 1)
 					} else {
 						dnw.WriteCmd(cmdStop)
 					}
+				case "ack": //Acknowledged
+					canWrite = true
+				case "nak": //Not acknowledged
+					err = fmt.Errorf("Not acknowledged: %s", msg)
+					dnw.WriteCmd(cmdStop)
+				default:
+					fmt.Println("DEBUG:", msg)
 				}
 			case "irom_booting_failure":
 				trace := make([]string, 15)
@@ -153,7 +170,7 @@ func main() {
 							}
 						}
 						if !diff {
-							break
+							continue
 						}
 					}
 					lastTrace = trace
@@ -168,7 +185,7 @@ func main() {
 			case "error":
 				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
 			default:
-				fmt.Println("Unknown message type:", msg.Type(), fmt.Sprintf("(%0x)", []byte(msg.Type())))
+				fmt.Printf("Unknown message: %s\n%0X\n", msg, msg)
 			}
 
 			if err != nil {
@@ -176,10 +193,13 @@ func main() {
 			}
 		}
 
-		fmt.Println("Disconnecting from Pixel ROM Recovery...")
+		fmt.Printf("\nDisconnecting from Pixel ROM Recovery...\n")
 		if err := dnw.Close(); err != nil {
 			fmt.Println("Error closing connection:", err)
 		}
+
+		since := time.Since(timeLive)
+		fmt.Printf("Connection lasted %s\n", since.String())
 	}
 }
 
@@ -212,9 +232,10 @@ func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
 		checksum := crc
 		if checksum == nil {
 			sum := uint16(0)
-			for i := 0; i < len(bytes); i++ {
+			for i := len(bytes) - 8; i >= 0; i-- {
 				sum += uint16(bytes[i])
 			}
+			sum &= 0xFFFF
 			sumBytes := crunchio.NewBuffer("crc", make([]byte, 2))
 			sumBytes.Buffer().WriteU16LENext([]uint16{sum})
 			checksum = sumBytes.Bytes()
