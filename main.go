@@ -11,6 +11,23 @@ import (
 	"github.com/spf13/pflag"
 )
 
+/* TODO:
+FBPK:
+- Create FBPK package, migrate main of fbpk to unique cmd
+- Parse and use FBPKv2 bootloader image via fbpk
+
+OTA:
+- Include aota
+- Parse and use OTA payload image via aota
+
+DNW:
+- Create DNW package, create main for unique cmd
+- Create reader and writer threads with read and write queues
+- Add cloning support for unique position trackers to allow independent queue seeking
+- Create Go types and enums for known fields in a response message to clean up processing
+- Support waiting for a queued message with constraints (i.e. ACK/NAK for EUB)
+*/
+
 const (
 	app = "Tensor-USBDL"
 	ver = "v0.0.1"
@@ -131,7 +148,7 @@ func main() {
 	}
 
 	if header <= 0 {
-		fmt.Println("Header size must be positive number!")
+		fmt.Println("[!] Header size must be positive number!")
 		return
 	}
 
@@ -139,16 +156,16 @@ func main() {
 		src = "sources"
 	}
 	if err := isDir(src); err != nil {
-		fmt.Printf("Error opening directory '%s': %v\n", src, err)
+		fmt.Printf("[!] Error opening directory '%s': %v\n", src, err)
 		return
 	}
 
 	if err := isFile(src, factory); err == nil {
-		fmt.Println("Processing FBPKv2")
+		fmt.Println("[*] Processing FBPKv2")
 	} else if err := isFile(src, ota); err == nil {
-		fmt.Println("Processing OTA")
+		fmt.Println("[*] Processing OTA")
 	} else {
-		fmt.Println("Processing raw")
+		fmt.Println("[*] Processing raw")
 	}
 
 	//TODO: Actually use the FBPKv2 or OTA when specified
@@ -165,32 +182,33 @@ func main() {
 		var lastTrace []string
 
 		fmt.Println("")
-		fmt.Println("Scanning for Pixel ROM Recovery...")
+		fmt.Println("[*] Scanning for Pixel ROM Recovery...")
 		for {
 			scanStart := time.Now()
 			dnw, err = NewDNW()
 			if err == nil {
 				scanSince := time.Since(scanStart)
 				timeLive = scanStart
-				fmt.Printf("Found Pixel ROM Recovery after %dms since connection\n", scanSince.Milliseconds())
+				fmt.Printf("[*] Found Pixel ROM Recovery after %dms since connection\n", scanSince.Milliseconds())
 				break
 			}
 		}
-		fmt.Println("Connected to Pixel ROM Recovery!")
+		fmt.Println("[*] Connected to Pixel ROM Recovery!")
 
 		//https://github.com/coreos/dev-util/blob/1cb32a9414c6c6085519657dccaff18fe2a51dd7/host/lib/write_firmware.py#L501
 		//BootROM needs roughly 200ms to be ready for USB download
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 200)
 
 		for {
-			msg, err := dnw.ReadMsg()
+			var msg *Message
+			msg, err = dnw.ReadMsg()
 			if err != nil {
 				break
 			}
 
 			if msg.IsControlBit() {
 				//Ignore, possibly marks end of request?
-				fmt.Println("Received control bit:", msg.String())
+				fmt.Println("[*] Received control bit:", msg.String())
 				continue
 			}
 
@@ -198,11 +216,11 @@ func main() {
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
-					fmt.Println("Pixel ROM Recovery identified as", msg.Device())
+					fmt.Println("[*] Pixel ROM Recovery identified as", msg.Device())
 				}
 			case "eub":
 				if !toldLive {
-					fmt.Println("Received message but not yet alive:", msg)
+					fmt.Println("[!] Unknown sender:", msg)
 					continue
 				}
 
@@ -211,59 +229,61 @@ func main() {
 					if !canWrite || justSent == msg.Argument() {
 						continue
 					}
-					fmt.Println("<-", msg.Argument())
+					fmt.Println("[*] Received request for", msg.Argument())
 
 					switch msg.Argument() {
 					case "DPM":
-						if dpm != "" {
+						/*if dpm != "" {
 							err = writeFile(dnw, src+"/"+dpm, true)
 						} else {
 							err = writeRaw(dnw, make([]byte, 4096), true)
+						}*/
+						fmt.Println("bl1")
+						if err = writeFile(dnw, src+"/"+bl1, false); err != nil {
+							break
 						}
-						if err != nil {
-							fmt.Println("Error writing DPM:", err)
+						fmt.Println("pbl")
+						if err = writeFile(dnw, src+"/"+pbl, false); err != nil {
+							break
+						}
+						fmt.Println("bl2 head")
+						if err = writeFileHead(dnw, src+"/"+bl2, false); err != nil {
+							break
+						}
+						fmt.Println("bl2 body")
+						if err = writeFileBody(dnw, src+"/"+bl2, false); err != nil {
+							break
 						}
 					case "EPBL":
 						err = writeFile(dnw, src+"/"+pbl, false)
-						if err != nil {
-							fmt.Println("Error writing PBL:", err)
-						}
 					case "bl1":
-						err = writeFile(dnw, src+"/"+bl1, true)
-						if err != nil {
-							fmt.Println("Error writing bl1:", err)
-						}
+						err = writeFile(dnw, src+"/"+bl1, false)
 					case "ABL":
-						err = writeFileHead(dnw, src+"/"+abl, false)
-						if err != nil {
-							fmt.Println("Error writing ABL header:", err)
-						}
+						err = writeFileHead(dnw, src+"/"+abl, true)
 					case "ABLB":
-						err = writeFileBody(dnw, src+"/"+abl, false)
-						if err != nil {
-							fmt.Println("Error writing ABL body:", err)
-						}
+						err = writeFileBody(dnw, src+"/"+abl, true)
 					default:
-						fmt.Println("Unhandled EUB request:", msg.Argument())
+						fmt.Println("[!] Unhandled EUB request:", msg.Argument())
 					}
 
 					lastSent = msg.Argument()
 					if err == nil {
-						fmt.Println("->", lastSent)
+						fmt.Println("[*] Successfully wrote", lastSent)
 						justSent = lastSent
 						canWrite = false
-						time.Sleep(time.Second * 1)
+						time.Sleep(time.Millisecond * 500)
 					} else {
-						fmt.Println("!!", lastSent)
 						dnw.WriteCmd(cmdStop)
 					}
 				case "ack": //Acknowledged
+					fmt.Println("[*] Acknowledged:", lastSent)
 					canWrite = true
 				case "nak": //Not acknowledged
+					fmt.Println("[!] Not acknowledged:", lastSent)
 					err = fmt.Errorf("Not acknowledged: %s", msg)
 					dnw.WriteCmd(cmdStop)
 				default:
-					fmt.Println("Unhandled EUB message:", msg)
+					fmt.Println("[!] Unhandled EUB message:", msg)
 				}
 			case "irom_booting_failure":
 				trace := make([]string, 15)
@@ -276,7 +296,7 @@ func main() {
 					trace[i] = codeMsg.Type()
 				}
 				if err != nil {
-					fmt.Println("Error reading BootROM boot failure trace:", err)
+					fmt.Println("[!] Error reading BootROM boot failure trace:", err)
 				} else {
 					if lastTrace != nil {
 						diff := false
@@ -287,22 +307,23 @@ func main() {
 							}
 						}
 						if !diff {
+							fmt.Println("[*] Received duplicate failure trace")
 							continue
 						}
 					}
 					lastTrace = trace
 
 					prefix := "\n> "
-					fmt.Printf("BootROM error booting")
+					fmt.Printf("[!] BootROM error booting")
 					if lastSent != "" {
 						fmt.Printf(" %s", lastSent)
 					}
 					fmt.Printf(":%s%s\n", prefix, strings.Join(trace, prefix))
 				}
 			case "error":
-				fmt.Printf("%s: %s\n", msg.Command(), msg.Argument())
+				fmt.Printf("[!] %s: %s\n", msg.Command(), msg.Argument())
 			default:
-				fmt.Printf("Unhandled message: %s (%0X)\n", msg, msg)
+				fmt.Printf("[!] Unhandled message: %s (%0X)\n", msg, msg)
 			}
 
 			if err != nil {
@@ -310,13 +331,17 @@ func main() {
 			}
 		}
 
-		fmt.Printf("\nDisconnecting from Pixel ROM Recovery...\n")
+		if err != nil {
+			fmt.Println("[!]", err)
+		}
+
+		fmt.Printf("[*] Disconnecting from Pixel ROM Recovery...\n")
 		if err := dnw.Close(); err != nil {
-			fmt.Println("Error closing connection:", err)
+			fmt.Println("[!] Error closing connection:", err)
 		}
 
 		since := time.Since(timeLive)
-		fmt.Printf("Connection lasted %s\n", since.String())
+		fmt.Printf("[*] Connection lasted %s\n", since.String())
 	}
 }
 
@@ -356,14 +381,14 @@ func checksum(bytes []byte) []byte {
 	buf := crunchio.NewBuffer("crc", make([]byte, 2))
 	if crc != nil {
 		buf.Buffer().WriteBytesNext(crc)
-		fmt.Printf("Using checksum: %X\n", crc)
+		fmt.Printf("[#] Using checksum: %X\n", crc)
 	} else {
 		var sum uint16
 		for i := 0; i < len(bytes); i++ {
 			sum += uint16(bytes[i])
 		}
 		buf.Buffer().WriteU16LENext([]uint16{sum})
-		fmt.Printf("Calculated checksum: %X\n", sum)
+		fmt.Printf("[#] Calculated checksum: %X\n", sum)
 	}
 	return buf.Bytes()
 }
