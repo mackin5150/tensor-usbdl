@@ -14,7 +14,7 @@ type DNW struct {
 }
 
 func NewDNW() (*DNW, error) {
-	mode := &serial.Mode{BaudRate: 9600, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
+	mode := &serial.Mode{BaudRate: 115200, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
 	ports := []string{
 		"/dev/ttyACM0", "COM4", //Google Tensor
 		"COM3", //Samsung Exynos
@@ -35,7 +35,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		return nil, fmt.Errorf("dnw: closed")
 	}
 
-	//d.Write([]byte("\n")) //Triggers a faster response for the next read
+	d.Write([]byte("\n")) //Triggers a faster response for the next read
 
 	bytes := make([]byte, 0)
 	for {
@@ -47,7 +47,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		if n != 1 {
 			continue
 		}
-		if p[0] == '\n' || p[0] == '\r' || p[0] == '\x00' {
+		if NewMessage(string(p[0])).IsControlBit() {
 			if len(bytes) == 0 {
 				continue
 			}
@@ -83,7 +83,6 @@ func (d *DNW) WriteCmd(c *Command) error {
 	if wrote != len(cmd) {
 		return fmt.Errorf("dnw: incomplete write (%d/%d bytes)", wrote, len(cmd))
 	}
-
 	return nil
 }
 

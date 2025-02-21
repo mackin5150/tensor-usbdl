@@ -41,6 +41,14 @@ func NewMessage(line string) *Message {
 	return m
 }
 
+func (m *Message) IsControlBit() bool {
+	switch m.Type() {
+	case "\r", "\n", "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B":
+		return true
+	}
+	return false
+}
+
 func (m *Message) String() string {
 	str := m.typ
 	if m.cmd != "" && m.arg != "" {
