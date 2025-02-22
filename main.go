@@ -238,6 +238,26 @@ func main() {
 						} else {
 							err = writeRaw(dnw, make([]byte, 4096), true)
 						}*/
+						fmt.Println("ufs")
+						if err = writeFile(dnw, src+"/"+ufs, false); err != nil {
+							break
+						}
+						fmt.Println("partition:0")
+						if err = writeFile(dnw, src+"/"+partition0, false); err != nil {
+							break
+						}
+						fmt.Println("partition:1")
+						if err = writeFile(dnw, src+"/"+partition1, false); err != nil {
+							break
+						}
+						fmt.Println("partition:2")
+						if err = writeFile(dnw, src+"/"+partition2, false); err != nil {
+							break
+						}
+						fmt.Println("partition:3")
+						if err = writeFile(dnw, src+"/"+partition3, false); err != nil {
+							break
+						}
 						fmt.Println("bl1")
 						if err = writeFile(dnw, src+"/"+bl1, false); err != nil {
 							break
@@ -246,12 +266,28 @@ func main() {
 						if err = writeFile(dnw, src+"/"+pbl, false); err != nil {
 							break
 						}
-						fmt.Println("bl2 head")
-						if err = writeFileHead(dnw, src+"/"+bl2, false); err != nil {
+						fmt.Println("bl31")
+						if err = writeFile(dnw, src+"/"+bl31, false); err != nil {
 							break
 						}
-						fmt.Println("bl2 body")
-						if err = writeFileBody(dnw, src+"/"+bl2, false); err != nil {
+						fmt.Println("tzsw")
+						if err = writeFile(dnw, src+"/"+tzsw, false); err != nil {
+							break
+						}
+						fmt.Println("gsa")
+						if err = writeFile(dnw, src+"/"+gsa, false); err != nil {
+							break
+						}
+						fmt.Println("ldfw")
+						if err = writeFile(dnw, src+"/"+ldfw, false); err != nil {
+							break
+						}
+						fmt.Println("bl2")
+						if err = writeFile(dnw, src+"/"+bl2, false); err != nil {
+							break
+						}
+						fmt.Println("abl")
+						if err = writeFile(dnw, src+"/"+abl, false); err != nil {
 							break
 						}
 					case "EPBL":
