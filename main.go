@@ -10,6 +10,22 @@ import (
 	"github.com/spf13/pflag"
 )
 
+/*
+Each bootloader image contains a 4KB (4096 byte) header followed by a code body.
+
+Known fields:
+0x00  0    |  512 =    ???: ???
+0x200 512  |  512 =    ???: consistent across images, unique per model (or series?)
+0x400 1024 |    4 = uint32: magic
+0x404 1028 |    8 =    ???: ???
+0x40C 1036 |    4 = uint32: length of bootloader body
+0x410 1040 |    4 = uint32: "USB Bootable" bit amongst other bitflags?
+0x414 1044 |   12 =    ???: ???
+0x420 1056 |   32 =  bytes: signature 1?
+0x440 1088 |   32 =  bytes: signature 2?
+0x460 1120 | 2976 =    ???: ??? (always empty)
+*/
+
 /* TODO:
 FBPK:
 - Create FBPK package, migrate main of fbpk to unique cmd
