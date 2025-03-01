@@ -34,8 +34,9 @@ const (
 )
 
 var (
-	help = false
-	dnw  = false
+	help   = false
+	useDNW = false
+	bitUSB = false
 
 	src         = "sources"
 	factory     = "bootloader.img"
@@ -104,8 +105,9 @@ func usage() {
 		" > Controls\n"+
 		" --address     | hex    | Target download address to write to                          | %X\n"+
 		" --header      | number | Number of bytes to interpret as header for splittable images | %d\n"+
+		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW commands\n"+
 		" --dnw         | none   | Overrides the download address to %X\n"+
-		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW commands\n",
+		" --usb         | none   | sets the 1040th byte to 01 if it is 00\n",
 		app, ver, god,
 		src, factory, ota,
 		prog,
@@ -120,7 +122,8 @@ func main() {
 	pflag.Usage = usage
 	pflag.CommandLine.SortFlags = false
 	pflag.BoolVarP(&help, "help", "h", false, "")
-	pflag.BoolVar(&dnw, "dnw", false, "")
+	pflag.BoolVar(&useDNW, "dnw", false, "")
+	pflag.BoolVar(&bitUSB, "usb", false, "")
 	pflag.StringVarP(&src, "src", "i", src, "")
 	pflag.StringVarP(&factory, "factory", "f", factory, "")
 	pflag.StringVarP(&ota, "ota", "o", ota, "")
@@ -147,9 +150,6 @@ func main() {
 	if help {
 		usage()
 		return
-	}
-	if dnw {
-		address = opDNW
 	}
 
 	if header <= 0 {
@@ -186,32 +186,29 @@ func main() {
 		timeLive := time.Now()
 		var lastTrace []string
 
-		fmt.Println("")
-		fmt.Println("[*] Scanning for Pixel ROM Recovery...")
+		fmt.Println("\n[*] Scanning for device...")
 		for {
 			scanStart := time.Now()
 			dnw, err = NewDNW()
 			if err == nil {
 				scanSince := time.Since(scanStart)
 				timeLive = scanStart
-				fmt.Printf("[*] Found Pixel ROM Recovery after %dms since connection\n", scanSince.Milliseconds())
+				fmt.Printf("[*] Found device after %dms since connection\n", scanSince.Milliseconds())
 				break
 			}
 		}
-		fmt.Println("[*] Connected to Pixel ROM Recovery!")
+		fmt.Println("[*] Connected to device!")
 		fmt.Println("- Port:  ", dnw.GetPort())
 		fmt.Println("- ID:    ", dnw.GetID())
 		fmt.Println("- Serial:", dnw.GetSerial())
 		fmt.Println("- USB:   ", dnw.GetUSB())
 
-		//https://github.com/coreos/dev-util/blob/1cb32a9414c6c6085519657dccaff18fe2a51dd7/host/lib/write_firmware.py#L501
-		//BootROM needs roughly 200ms to be ready for USB download
-		time.Sleep(time.Millisecond * 200)
-
 		for {
 			var msg *Message
 			msg, err = dnw.ReadMsg()
 			if err != nil {
+				fmt.Printf("[!] Error reading from device: %v\n", err)
+				err = nil
 				break
 			}
 			if msg == nil {
@@ -228,7 +225,7 @@ func main() {
 			case "exynos_usb_booting":
 				if msg.Device() != "" && !toldLive {
 					toldLive = true
-					fmt.Println("[*] Pixel ROM Recovery identified as", msg.Device())
+					fmt.Println("[*] Device identified as", msg.Device())
 				}
 			case "eub":
 				if !toldLive {
@@ -245,6 +242,10 @@ func main() {
 
 					lastSent = msg.Argument()
 					addr := address
+					if useDNW {
+						addr = opDNW
+					}
+
 					switch msg.Argument() {
 					case "DPM":
 						//addr = []byte{'D', 'P', 'M', '1'}
@@ -271,7 +272,7 @@ func main() {
 						fmt.Printf("[*] Successfully wrote %s\n", lastSent)
 						justSent = lastSent
 						canWrite = false
-						time.Sleep(time.Millisecond * 500)
+						//time.Sleep(time.Millisecond * 500)
 					} else {
 						fmt.Printf("[!] Failed to write %s, sending stop\n", lastSent)
 						dnw.WriteCmd(cmdStop)
@@ -321,7 +322,7 @@ func main() {
 					fmt.Printf(":%s%s\n", prefix, strings.Join(trace, prefix))
 				}
 			case "error":
-				fmt.Printf("[!] %s: %s\n", msg.Command(), msg.Argument())
+				fmt.Printf("[!] Processed error: %s: %s\n", msg.Command(), msg.Argument())
 			default:
 				fmt.Printf("[!] Unhandled message: %s (%0X)\n", msg, msg)
 			}
@@ -332,7 +333,7 @@ func main() {
 		}
 
 		if err != nil {
-			fmt.Println("[!]", err)
+			fmt.Println("[!] Fallback error:", err)
 		}
 
 		fmt.Printf("[*] Disconnecting from Pixel ROM Recovery...\n")

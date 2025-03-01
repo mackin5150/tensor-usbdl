@@ -14,6 +14,12 @@ func readFile(file string) ([]byte, error) {
 	if err != nil {
 		return os.ReadFile(file)
 	}
+
+	//Set USB boot flag(?) in header of bootloader
+	if bitUSB && len(bytes) > 1040 && bytes[1040] == 0 {
+		bytes[1040] = 1
+	}
+
 	return bytes, err
 }
 
