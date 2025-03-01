@@ -6,36 +6,96 @@ import (
 	"time"
 
 	"go.bug.st/serial"
+	"go.bug.st/serial/enumerator"
 )
 
 type DNW struct {
 	mutex sync.Mutex
-	port  serial.Port
+	port  *enumerator.PortDetails
+	sock  serial.Port
 }
 
 func NewDNW() (*DNW, error) {
-	mode := &serial.Mode{BaudRate: 115200, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
-	ports := []string{
-		"/dev/ttyACM0", "COM4", //Google Tensor
-		"COM3", //Samsung Exynos
+	ports, err := enumerator.GetDetailedPortsList()
+	if err != nil {
+		return nil, err
 	}
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("dnw: no ports found")
+	}
+
+	var port *enumerator.PortDetails
 	for i := 0; i < len(ports); i++ {
-		ser, err := serial.Open(ports[i], mode)
-		if err != nil {
-			continue
+		test := ports[i]
+		if test.VID == "18D1" && test.PID == "4F00" { //Google Pixel 6 series
+			port = test
+			break
 		}
-		ser.SetReadTimeout(time.Millisecond * 500)
-		return &DNW{port: ser}, nil
 	}
-	return nil, fmt.Errorf("dnw: no ports found")
+	if port == nil {
+		return nil, fmt.Errorf("dnw: no allowed port found in list")
+	}
+
+	mode := &serial.Mode{BaudRate: 115200, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
+	sock, err := serial.Open(port.Name, mode)
+	if err != nil {
+		return nil, err
+	}
+	sock.SetReadTimeout(time.Millisecond * 500)
+
+	return &DNW{port: port, sock: sock}, nil
+}
+
+func (d *DNW) GetPort() string {
+	if d.port == nil {
+		return ""
+	}
+	return d.port.Name
+}
+
+func (d *DNW) GetSerial() string {
+	if d.port == nil {
+		return ""
+	}
+	return d.port.SerialNumber
+}
+
+func (d *DNW) GetID() string {
+	vid := d.GetVID()
+	pid := d.GetPID()
+	if vid == "" || pid == "" {
+		return ""
+	}
+	return vid + ":" + pid
+}
+
+func (d *DNW) GetVID() string {
+	if d.port == nil {
+		return ""
+	}
+	return d.port.VID
+}
+
+func (d *DNW) GetPID() string {
+	if d.port == nil {
+		return ""
+	}
+	return d.port.PID
+}
+
+func (d *DNW) GetUSB() bool {
+	if d.port == nil {
+		return false
+	}
+	return d.port.IsUSB
 }
 
 func (d *DNW) ReadMsg() (*Message, error) {
-	if d.port == nil {
+	if d.sock == nil {
 		return nil, fmt.Errorf("dnw: closed")
 	}
 
-	d.Write([]byte("\n")) //Triggers a faster response for the next read
+	//d.Write([]byte("\n")) //Triggers a faster response for the next read
 
 	bytes := make([]byte, 0)
 	for {
@@ -45,7 +105,7 @@ func (d *DNW) ReadMsg() (*Message, error) {
 			return nil, err
 		}
 		if n != 1 {
-			continue
+			break
 		}
 		if NewMessage(string(p[0])).IsControlBit() {
 			if len(bytes) == 0 {
@@ -56,7 +116,23 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		bytes = append(bytes, p...)
 	}
 
+	if len(bytes) == 0 {
+		return nil, nil
+	}
+
 	return NewMessage(string(bytes)), nil
+}
+
+func (d *DNW) WaitForMsg() (*Message, error) {
+	for {
+		msg, err := d.ReadMsg()
+		if err != nil {
+			return nil, err
+		}
+		if msg != nil {
+			return msg, nil
+		}
+	}
 }
 
 func (d *DNW) WriteCmd(c *Command) error {
@@ -87,48 +163,48 @@ func (d *DNW) WriteCmd(c *Command) error {
 }
 
 func (d *DNW) Reset() error {
-	if err := d.port.ResetInputBuffer(); err != nil {
+	if err := d.sock.ResetInputBuffer(); err != nil {
 		return nil
 	}
-	if err := d.port.ResetOutputBuffer(); err != nil {
+	if err := d.sock.ResetOutputBuffer(); err != nil {
 		return nil
 	}
 	return nil
 }
 
 func (d *DNW) Close() error {
-	if d.port != nil {
-		if err := d.port.Close(); err != nil {
+	if d.sock != nil {
+		if err := d.sock.Close(); err != nil {
 			return err
 		}
-		d.port = nil
+		d.sock = nil
 		return nil
 	}
 	return fmt.Errorf("dnw: already closed")
 }
 
 func (d *DNW) Read(p []byte) (n int, err error) {
-	if d.port == nil {
+	if d.sock == nil {
 		return 0, fmt.Errorf("dnw: closed")
 	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	if err := d.port.Drain(); err != nil {
+	if err := d.sock.Drain(); err != nil {
 		return 0, err
 	}
-	return d.port.Read(p)
+	return d.sock.Read(p)
 }
 
 func (d *DNW) Write(p []byte) (n int, err error) {
-	if d.port == nil {
+	if d.sock == nil {
 		return 0, fmt.Errorf("dnw: closed")
 	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	if n, err = d.port.Write(p); err != nil {
+	if n, err = d.sock.Write(p); err != nil {
 		return n, err
 	}
-	if err = d.port.Drain(); err != nil {
+	if err = d.sock.Drain(); err != nil {
 		return n, err
 	}
 	return n, nil

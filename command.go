@@ -5,15 +5,15 @@ import (
 )
 
 var (
-	cmdStop = NewCommand("\x1BDNW", nil, []byte("\x01\x00"))
+	opDNW   = []byte("\x1BDNW")
+	cmdStop = NewCommand(opDNW, nil, []byte("\x01\x00"))
 )
 
 type Command struct {
-	cmd       string
-	crc, data []byte
+	cmd, crc, data []byte
 }
 
-func NewCommand(cmd string, data, crc []byte) *Command {
+func NewCommand(cmd, data, crc []byte) *Command {
 	return &Command{
 		cmd:  cmd,
 		crc:  crc,
@@ -22,7 +22,7 @@ func NewCommand(cmd string, data, crc []byte) *Command {
 }
 
 func (c *Command) Bytes() []byte {
-	bytes := crunchio.NewBuffer(c.cmd)
+	bytes := crunchio.NewBuffer(string(c.cmd))
 	if c.CmdLen() > 0 {
 		bytes.Write(c.Cmd()) //Usually 4 bytes, i.e. {ESC}DNW
 		bytes.WriteAbstract(int32(4 + c.CmdLen() + c.CRCLen() + c.DataLen()))

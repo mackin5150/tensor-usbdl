@@ -43,7 +43,7 @@ func NewMessage(line string) *Message {
 
 func (m *Message) IsControlBit() bool {
 	switch m.Type() {
-	case "\r", "\n", "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B":
+	case "\r", "\n", "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B", "\x15":
 		return true
 	}
 	return false

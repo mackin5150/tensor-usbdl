@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JoshuaDoes/crunchio"
 	"github.com/spf13/pflag"
 )
 
@@ -36,6 +35,7 @@ const (
 
 var (
 	help = false
+	dnw  = false
 
 	src         = "sources"
 	factory     = "bootloader.img"
@@ -56,8 +56,8 @@ var (
 	ufsfwupdate = "ufsfwupdate.img"
 	dpm         = ""
 
+	address []byte
 	crc     []byte
-	address = []byte("\x1BDNW")
 	header  = 4096
 )
 
@@ -104,14 +104,15 @@ func usage() {
 		" > Controls\n"+
 		" --address     | hex    | Target download address to write to                          | %X\n"+
 		" --header      | number | Number of bytes to interpret as header for splittable images | %d\n"+
-		" -c, --crc     | hex    | Overrides calculating a CRC when writing DNW commands\n",
+		" --dnw         | none   | Overrides the download address to %X\n"+
+		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW commands\n",
 		app, ver, god,
 		src, factory, ota,
 		prog,
 		src, factory, ota,
 		ufs, partition0, partition1, partition2, partition3,
 		bl1, pbl, bl2, abl, bl31, gsa, tzsw, ldfw, ufsfwupdate,
-		address, header)
+		address, header, opDNW)
 	fmt.Fprintf(os.Stderr, "%s\n", text)
 }
 
@@ -119,6 +120,7 @@ func main() {
 	pflag.Usage = usage
 	pflag.CommandLine.SortFlags = false
 	pflag.BoolVarP(&help, "help", "h", false, "")
+	pflag.BoolVar(&dnw, "dnw", false, "")
 	pflag.StringVarP(&src, "src", "i", src, "")
 	pflag.StringVarP(&factory, "factory", "f", factory, "")
 	pflag.StringVarP(&ota, "ota", "o", ota, "")
@@ -145,6 +147,9 @@ func main() {
 	if help {
 		usage()
 		return
+	}
+	if dnw {
+		address = opDNW
 	}
 
 	if header <= 0 {
@@ -194,6 +199,10 @@ func main() {
 			}
 		}
 		fmt.Println("[*] Connected to Pixel ROM Recovery!")
+		fmt.Println("- Port:  ", dnw.GetPort())
+		fmt.Println("- ID:    ", dnw.GetID())
+		fmt.Println("- Serial:", dnw.GetSerial())
+		fmt.Println("- USB:   ", dnw.GetUSB())
 
 		//https://github.com/coreos/dev-util/blob/1cb32a9414c6c6085519657dccaff18fe2a51dd7/host/lib/write_firmware.py#L501
 		//BootROM needs roughly 200ms to be ready for USB download
@@ -204,6 +213,9 @@ func main() {
 			msg, err = dnw.ReadMsg()
 			if err != nil {
 				break
+			}
+			if msg == nil {
+				continue
 			}
 
 			if msg.IsControlBit() {
@@ -231,92 +243,44 @@ func main() {
 					}
 					fmt.Println("[*] Received request for", msg.Argument())
 
+					lastSent = msg.Argument()
+					addr := address
 					switch msg.Argument() {
 					case "DPM":
-						/*if dpm != "" {
-							err = writeFile(dnw, src+"/"+dpm, true)
+						//addr = []byte{'D', 'P', 'M', '1'}
+						if dpm != "" {
+							err = writeFile(dnw, dpm, addr)
 						} else {
-							err = writeRaw(dnw, make([]byte, 4096), true)
-						}*/
-						fmt.Println("ufs")
-						if err = writeFile(dnw, src+"/"+ufs, false); err != nil {
-							break
-						}
-						fmt.Println("partition:0")
-						if err = writeFile(dnw, src+"/"+partition0, false); err != nil {
-							break
-						}
-						fmt.Println("partition:1")
-						if err = writeFile(dnw, src+"/"+partition1, false); err != nil {
-							break
-						}
-						fmt.Println("partition:2")
-						if err = writeFile(dnw, src+"/"+partition2, false); err != nil {
-							break
-						}
-						fmt.Println("partition:3")
-						if err = writeFile(dnw, src+"/"+partition3, false); err != nil {
-							break
-						}
-						fmt.Println("bl1")
-						if err = writeFile(dnw, src+"/"+bl1, false); err != nil {
-							break
-						}
-						fmt.Println("pbl")
-						if err = writeFile(dnw, src+"/"+pbl, false); err != nil {
-							break
-						}
-						fmt.Println("bl31")
-						if err = writeFile(dnw, src+"/"+bl31, false); err != nil {
-							break
-						}
-						fmt.Println("tzsw")
-						if err = writeFile(dnw, src+"/"+tzsw, false); err != nil {
-							break
-						}
-						fmt.Println("gsa")
-						if err = writeFile(dnw, src+"/"+gsa, false); err != nil {
-							break
-						}
-						fmt.Println("ldfw")
-						if err = writeFile(dnw, src+"/"+ldfw, false); err != nil {
-							break
-						}
-						fmt.Println("bl2")
-						if err = writeFile(dnw, src+"/"+bl2, false); err != nil {
-							break
-						}
-						fmt.Println("abl")
-						if err = writeFile(dnw, src+"/"+abl, false); err != nil {
-							break
+							err = writeRaw(dnw, make([]byte, 4096), addr)
 						}
 					case "EPBL":
-						err = writeFile(dnw, src+"/"+pbl, false)
+						//addr = []byte{'E', 'P', 'B', 'L'}
+						err = writeFile(dnw, pbl, addr)
 					case "bl1":
-						err = writeFile(dnw, src+"/"+bl1, false)
+						//addr = []byte{'A', 'P', 'B', 'L'}
+						err = writeFile(dnw, bl1, addr)
 					case "ABL":
-						err = writeFileHead(dnw, src+"/"+abl, true)
+						err = writeFileHead(dnw, abl, addr)
 					case "ABLB":
-						err = writeFileBody(dnw, src+"/"+abl, true)
+						err = writeFileBody(dnw, abl, addr)
 					default:
 						fmt.Println("[!] Unhandled EUB request:", msg.Argument())
 					}
 
-					lastSent = msg.Argument()
 					if err == nil {
-						fmt.Println("[*] Successfully wrote", lastSent)
+						fmt.Printf("[*] Successfully wrote %s\n", lastSent)
 						justSent = lastSent
 						canWrite = false
 						time.Sleep(time.Millisecond * 500)
 					} else {
+						fmt.Printf("[!] Failed to write %s, sending stop\n", lastSent)
 						dnw.WriteCmd(cmdStop)
 					}
 				case "ack": //Acknowledged
-					fmt.Println("[*] Acknowledged:", lastSent)
+					fmt.Println("[*] Acknowledged:", msg.Argument())
 					canWrite = true
 				case "nak": //Not acknowledged
-					fmt.Println("[!] Not acknowledged:", lastSent)
-					err = fmt.Errorf("Not acknowledged: %s", msg)
+					fmt.Println("[!] Not acknowledged:", msg.Argument())
 					dnw.WriteCmd(cmdStop)
 				default:
 					fmt.Println("[!] Unhandled EUB message:", msg)
@@ -379,52 +343,4 @@ func main() {
 		since := time.Since(timeLive)
 		fmt.Printf("[*] Connection lasted %s\n", since.String())
 	}
-}
-
-func writeFile(dnw *DNW, file string, asCmd bool) error {
-	bytes, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, bytes, asCmd)
-}
-
-func writeFileHead(dnw *DNW, file string, asCmd bool) error {
-	bytes, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, bytes[:header], asCmd)
-}
-
-func writeFileBody(dnw *DNW, file string, asCmd bool) error {
-	bytes, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, bytes[header:], asCmd)
-}
-
-func writeRaw(dnw *DNW, bytes []byte, asCmd bool) error {
-	if asCmd {
-		cksum := checksum(bytes)
-		return dnw.WriteCmd(NewCommand(string(address), bytes, cksum))
-	}
-	return dnw.WriteCmd(NewCommand("", bytes, nil))
-}
-
-func checksum(bytes []byte) []byte {
-	buf := crunchio.NewBuffer("crc", make([]byte, 2))
-	if crc != nil {
-		buf.Buffer().WriteBytesNext(crc)
-		fmt.Printf("[#] Using checksum: %X\n", crc)
-	} else {
-		var sum uint16
-		for i := 0; i < len(bytes); i++ {
-			sum += uint16(bytes[i])
-		}
-		buf.Buffer().WriteU16LENext([]uint16{sum})
-		fmt.Printf("[#] Calculated checksum: %X\n", sum)
-	}
-	return buf.Bytes()
 }
