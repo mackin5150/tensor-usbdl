@@ -181,13 +181,13 @@ func main() {
 		return
 	}
 
-	if err := isFile(src, factory); err == nil {
+	/*if err := isFile(src, factory); err == nil {
 		fmt.Println("[*] Processing FBPKv2")
 	} else if err := isFile(src, ota); err == nil {
 		fmt.Println("[*] Processing OTA")
 	} else {
 		fmt.Println("[*] Processing raw")
-	}
+	}*/
 
 	//TODO: Actually use the FBPKv2 or OTA when specified
 	//----------------------
@@ -221,9 +221,14 @@ func main() {
 
 		for {
 			var msg *Message
-			msg, err = dnw.ReadMsg()
+			msg, err = dnw.WaitForMsg()
 			if err != nil {
 				fmt.Printf("[!] Error reading from device: %v\n", err)
+				if msg != nil {
+					if str := msg.String(); str != "" {
+						fmt.Printf("[#] Last message from device: %s\n", str)
+					}
+				}
 				err = nil
 				break
 			}
@@ -287,7 +292,7 @@ func main() {
 					if err == nil {
 						fmt.Printf("[*] Successfully wrote %s\n", lastSent)
 						justSent = lastSent
-						canWrite = false
+						//canWrite = false
 						//time.Sleep(time.Millisecond * 500)
 					} else {
 						fmt.Printf("[!] Failed to write %s, sending stop\n", lastSent)

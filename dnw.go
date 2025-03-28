@@ -102,16 +102,35 @@ func (d *DNW) ReadMsg() (*Message, error) {
 		p := make([]byte, 1)
 		n, err := d.Read(p)
 		if err != nil {
-			return nil, err
+			return NewMessage(string(bytes)), err
 		}
 		if n != 1 {
-			break
-		}
-		if NewMessage(string(p[0])).IsControlBit() {
 			if len(bytes) == 0 {
 				continue
 			}
 			break
+		}
+		//if NewMessage(string(p[0])).IsControlBit() {
+		if p[0] == '\n' {
+			if len(bytes) == 0 {
+				continue
+			}
+			//In case of CRLF?
+			if bytes[len(bytes)-1] == '\r' {
+				fmt.Println("[V] Encountered CRLF")
+				bytes = bytes[:len(bytes)-1]
+			}
+			break
+		}
+		if len(bytes) == 0 {
+			switch p[0] {
+			case 'C':
+				return NewMessage("C"), nil
+			case '\x06':
+				return NewMessage("ACK"), nil
+			case '\x15':
+				return NewMessage("NAK"), nil
+			}
 		}
 		bytes = append(bytes, p...)
 	}
@@ -127,7 +146,7 @@ func (d *DNW) WaitForMsg() (*Message, error) {
 	for {
 		msg, err := d.ReadMsg()
 		if err != nil {
-			return nil, err
+			return msg, err
 		}
 		if msg != nil {
 			return msg, nil
@@ -141,7 +160,8 @@ func (d *DNW) WriteCmd(c *Command) error {
 		return nil
 	}
 
-	toWrite := 512
+	blockSize := 512
+	toWrite := blockSize
 	wrote := 0
 	for {
 		if wrote+toWrite >= len(cmd) {
@@ -159,6 +179,43 @@ func (d *DNW) WriteCmd(c *Command) error {
 	if wrote != len(cmd) {
 		return fmt.Errorf("dnw: incomplete write (%d/%d bytes)", wrote, len(cmd))
 	}
+
+	for {
+		msg, err := d.ReadMsg()
+		if err != nil {
+			return fmt.Errorf("dnw: error reading after writing (%d/%d bytes): %v", wrote, len(cmd), err)
+		}
+		leave := false
+		if msg != nil {
+			fmt.Printf("[V] Message received after writing (%d/%d bytes): %s\n", wrote, len(cmd), msg.String())
+			switch msg.Type() {
+			case "ACK":
+				leave = true
+			case "NAK":
+				return fmt.Errorf("dnw: nak after writing (%d/%d bytes)", wrote, len(cmd))
+			}
+		}
+		if leave {
+			break
+		}
+	}
+
+	/*if toWrite < blockSize {
+		toWrite = blockSize - toWrite
+		n, err := d.Write(make([]byte, toWrite))
+		if err != nil {
+			return fmt.Errorf("dnw: incomplete padding (%d/%d bytes): %v", n, toWrite, err)
+		}
+		if n != toWrite {
+			return fmt.Errorf("dnw: incomplete padding (%d/%d bytes)", n, toWrite)
+		}
+	}*/
+
+	n, err := d.Write([]byte{0x04}) //End-of-Transmission
+	if err != nil || n != 1 {
+		return fmt.Errorf("dnw: failed to write EOT after stream (%d/%d bytes): %v", n, 1, err)
+	}
+
 	return nil
 }
 

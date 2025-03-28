@@ -5,8 +5,14 @@ import (
 )
 
 var (
-	opDNW   = []byte("\x1BDNW")
-	cmdStop = NewCommand(opDNW, nil, []byte("\x01\x00"))
+	opDNW  = []byte("\x1BDNW")
+	cmdDNW = NewCommand(opDNW, nil, nil)
+
+	opC  = []byte("C")
+	cmdC = NewCommand(nil, opC, nil)
+
+	opStop  = []byte("\x1BDNW\x00\x00\x00\x00\x01\x00")
+	cmdStop = NewCommand(nil, opStop, nil)
 )
 
 type Command struct {

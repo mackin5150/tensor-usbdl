@@ -4,9 +4,9 @@ import (
 	"strings"
 )
 
-// exynos_usb_booting::09845001cddf16d00bd4
-// eub:req:09845001:DPM
-// C
+// exynos_usb_booting::09845001cddf16d00bd4\n
+// eub:req:09845001:DPM\n
+// C\n
 type Message struct {
 	typ string //C, eub, exynos_usb_booting, bl1 header fail, a literal carriage return
 	cmd string //req, irom_booting_failure
@@ -43,7 +43,7 @@ func NewMessage(line string) *Message {
 
 func (m *Message) IsControlBit() bool {
 	switch m.Type() {
-	case "\r", "\n", "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B", "\x15":
+	case "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B", "\x15", "ACK", "NAK":
 		return true
 	}
 	return false

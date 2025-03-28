@@ -49,16 +49,15 @@ func writeFileBody(dnw *DNW, file string, addr []byte) error {
 
 func writeRaw(dnw *DNW, bytes, addr []byte) error {
 	if addr != nil {
-		cksum := checksum(bytes)
-		if err := dnw.WriteCmd(NewCommand(address, bytes, cksum)); err != nil {
-			fmt.Printf("[!] Failed to write %d bytes to address %X\n", len(bytes), addr)
+		if err := dnw.WriteCmd(NewCommand(address, bytes, checksum(bytes))); err != nil {
+			fmt.Printf("[!] Failed to write %d bytes to address %X: %v\n", len(bytes), addr, err)
 			return err
 		}
 		fmt.Printf("[*] Wrote %d bytes to address %X\n", len(bytes), addr)
 		return nil
 	}
 	if err := dnw.WriteCmd(NewCommand(nil, bytes, nil)); err != nil {
-		fmt.Printf("[!] Failed to write %d bytes\n", len(bytes))
+		fmt.Printf("[!] Failed to write %d bytes: %v\n", len(bytes), err)
 		return err
 	}
 	fmt.Printf("[*] Wrote %d bytes\n", len(bytes))
