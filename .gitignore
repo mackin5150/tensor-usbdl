@@ -2,5 +2,4 @@
 sources
 
 # Output binaries
-tensor-usbdl
 *.exe

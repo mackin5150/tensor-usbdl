@@ -1,268 +1,323 @@
-package main
+package tensorutils
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
+	"github.com/JoshuaDoes/crunchio"
 	"go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
 )
 
-type DNW struct {
-	mutex sync.Mutex
-	port  *enumerator.PortDetails
-	sock  serial.Port
+var (
+	devicePairsDNW = [][]string{
+		{"18D1", "4F00"}, //Google Pixel 6/6a/6Pro
+	}
+	claimDNW = make(map[string]*DNW)
+)
+
+// GetDNW finds the next device known to be compatible with DNW and claims it
+func GetDNW() (*DNW, error) {
+	closeGhostsDNW()
+
+	//Find a matching device pair available for DNW
+	for i := 0; i < len(devicePairsDNW); i++ {
+		devPair := devicePairsDNW[i]
+		dev := getDevice(devPair[0], devPair[1])
+		if dev == nil {
+			continue
+		}
+
+		//Skip the device if it was already claimed for DNW
+		if _, exists := claimDNW[dev.Name]; exists {
+			continue
+		}
+
+		port, err := serial.Open(dev.Name, &serial.Mode{BaudRate: 115200, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit})
+		if err != nil {
+			return nil, fmt.Errorf("dnw: failed to claim '%s': %v", dev.Name, err)
+		}
+		port.SetReadTimeout(time.Millisecond * 200)
+
+		//Claim the DNW device
+		dnw := new(DNW)
+		dnw.port = port
+		dnw.info = dev
+		claimDNW[dev.Name] = dnw
+
+		//Start the reader thread
+		go dnw.readThread()
+
+		return dnw, nil
+	}
+	return nil, fmt.Errorf("dnw: no device found")
 }
 
-func NewDNW() (*DNW, error) {
-	ports, err := enumerator.GetDetailedPortsList()
-	if err != nil {
-		return nil, err
-	}
-	if len(ports) == 0 {
-		return nil, fmt.Errorf("dnw: no ports found")
-	}
-
-	var port *enumerator.PortDetails
-	for i := 0; i < len(ports); i++ {
-		test := ports[i]
-		if test.VID == "18D1" && test.PID == "4F00" { //Google Pixel 6 series
-			port = test
+func RegisterDevicePairDNW(vid, pid string) {
+	found := false
+	for _, pair := range devicePairsDNW {
+		if pair[0] == vid && pair[1] == pid {
+			found = true
 			break
 		}
 	}
-	if port == nil {
-		return nil, fmt.Errorf("dnw: no allowed port found in list")
+	if !found {
+		devicePairsDNW = append(devicePairsDNW, []string{vid, pid})
+	}
+}
+
+func closeGhostsDNW() {
+	refreshDevices()
+	for port, dnw := range claimDNW {
+		found := false
+		for i := 0; i < len(knownDevices); i++ {
+			if knownDevices[i].Name == port {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			dnw.close()
+			delete(claimDNW, port)
+		}
+	}
+}
+
+type DNW struct {
+	mutex  sync.Mutex
+	port   serial.Port
+	info   *enumerator.PortDetails
+	buffer *crunchio.Buffer //Used for writing the message queue
+	reader *crunchio.Buffer //Clone for reading the message queue
+	closed bool
+}
+
+func (dnw *DNW) ReadMsg() (*Message, error) {
+	dnw.mutex.Lock()
+	defer dnw.mutex.Unlock()
+	if dnw.buffer == nil {
+		return nil, fmt.Errorf("dnw: buffer was freed")
 	}
 
-	mode := &serial.Mode{BaudRate: 115200, Parity: serial.NoParity, DataBits: 8, StopBits: serial.OneStopBit}
-	sock, err := serial.Open(port.Name, mode)
+	buf := make([]byte, 0)
+	for {
+		p := make([]byte, 1)
+		n, err := dnw.read(p)
+		if err != nil {
+			if len(buf) > 0 {
+				return NewMessage(buf), err
+			}
+			return nil, err
+		}
+		if n != 1 {
+			if len(buf) > 0 {
+				//We haven't read a full message yet, but we have some data!
+				//Seek backwards and return an empty message so caller can try again on loop
+				dnw.reader.Seek(int64(-1*len(buf)), io.SeekCurrent)
+				return nil, nil
+			}
+
+			//Nothing was read yet
+			if dnw.Closed() {
+				break
+			}
+			continue
+		}
+		b := p[0]
+
+		if b == '\n' || b == '\r' {
+			if len(buf) > 0 {
+				break //Parse what we've read so far
+			}
+			continue //Skip empty queued messages
+		}
+
+		buf = append(buf, b)
+	}
+
+	if len(buf) > 0 {
+		return NewMessage(buf), nil
+	}
+	return nil, nil
+}
+func (dnw *DNW) Read(p []byte) (int, error) {
+	dnw.mutex.Lock()
+	defer dnw.mutex.Unlock()
+	if dnw.Closed() {
+		return 0, fmt.Errorf("dnw: closed")
+	}
+
+	return dnw.read(p)
+}
+func (dnw *DNW) read(p []byte) (int, error) {
+	//Read from a clone of the message queue
+	return dnw.reader.Read(p)
+}
+func (dnw *DNW) readThread() {
+	dnw.buffer = crunchio.NewBuffer("EUB Writer", nil)
+	dnw.buffer.SetStream(true) //Don't return an EOF when waiting on data
+	dnw.reader = dnw.buffer.Reference()
+	dnw.reader.SetName("EUB Reader")
+
+	for {
+		//Read the next chunk of data
+		p := make([]byte, 10240)
+		n, err := dnw.port.Read(p)
+		if err != nil {
+			break
+		}
+		if n == 0 {
+			continue
+		}
+
+		//Write it to the message queue
+		p = p[:n]
+		_, err = dnw.buffer.Write(p)
+		if err != nil {
+			break
+		}
+	}
+
+	dnw.close()
+}
+
+func (dnw *DNW) WriteCmd(cmd *Command) error {
+	if cmd == nil {
+		return fmt.Errorf("dnw: nil command")
+	}
+	return dnw.WriteMsg(NewMessage(cmd.Bytes()))
+}
+func (dnw *DNW) WriteMsg(msg *Message) error {
+	dnw.mutex.Lock()
+	defer dnw.mutex.Unlock()
+	if dnw.Closed() {
+		return fmt.Errorf("dnw: closed")
+	}
+
+	p := msg.Bytes()
+
+	//Append a newline if one was not written, marks end of message
+	/*if len(p) == 0 {
+		p = []byte{'\n'}
+	} else if p[len(p)-1] != '\n' {
+		p = append(p, '\n')
+	}*/
+
+	//Write on loop until the end of message or error
+	blockSize := 512
+	wrote := 0
+	left := blockSize
+	for {
+		//Keep leftover bytes within msg bounds
+		if wrote+left >= len(p) {
+			left -= (wrote + left) - len(p)
+		}
+
+		n, err := dnw.write(p[wrote : wrote+left])
+		wrote += n
+		if err != nil {
+			return fmt.Errorf("dnw: failed to write after %d/%d bytes: %v", wrote, len(p), err)
+		}
+		if wrote >= len(p) {
+			break
+		}
+	}
+	if wrote != len(p) {
+		return fmt.Errorf("dnw: only wrote %d/%d bytes", wrote, len(p))
+	}
+	return nil
+}
+func (dnw *DNW) Write(p []byte) (int, error) {
+	dnw.mutex.Lock()
+	defer dnw.mutex.Unlock()
+	if dnw.Closed() {
+		return 0, fmt.Errorf("dnw: closed")
+	}
+
+	return dnw.write(p)
+}
+func (dnw *DNW) write(p []byte) (int, error) {
+	n, err := dnw.port.Write(p)
 	if err != nil {
-		return nil, err
+		return n, err
 	}
-	sock.SetReadTimeout(time.Millisecond * 500)
-
-	return &DNW{port: port, sock: sock}, nil
+	if err := dnw.port.Drain(); err != nil {
+		return n, err
+	}
+	return n, nil
 }
 
-func (d *DNW) GetPort() string {
-	if d.port == nil {
+func (dnw *DNW) Close() error {
+	dnw.mutex.Lock()
+	defer dnw.mutex.Unlock()
+	return dnw.close()
+}
+func (dnw *DNW) close() error {
+	if dnw.Closed() {
+		return nil
+	}
+	if err := dnw.port.Close(); err != nil {
+		return err
+	}
+	dnw.closed = true
+	return nil
+}
+func (dnw *DNW) Closed() bool {
+	return dnw.closed
+}
+func (dnw *DNW) Free() {
+	dnw.close()
+	dnw.buffer.Reset()
+	dnw.buffer = nil
+	dnw.reader = nil
+	dnw.info = nil
+}
+
+func (dnw *DNW) GetBuffer() *crunchio.Buffer {
+	if dnw.buffer == nil {
+		return nil
+	}
+	return dnw.buffer.Reference()
+}
+
+func (dnw *DNW) GetPort() string {
+	if dnw.Closed() {
 		return ""
 	}
-	return d.port.Name
+	return dnw.info.Name
 }
-
-func (d *DNW) GetSerial() string {
-	if d.port == nil {
+func (dnw *DNW) GetSerial() string {
+	if dnw.Closed() {
 		return ""
 	}
-	return d.port.SerialNumber
+	return dnw.info.SerialNumber
 }
-
-func (d *DNW) GetID() string {
-	vid := d.GetVID()
-	pid := d.GetPID()
+func (dnw *DNW) GetID() string {
+	vid := dnw.GetVID()
+	pid := dnw.GetPID()
 	if vid == "" || pid == "" {
 		return ""
 	}
 	return vid + ":" + pid
 }
-
-func (d *DNW) GetVID() string {
-	if d.port == nil {
+func (dnw *DNW) GetVID() string {
+	if dnw.Closed() {
 		return ""
 	}
-	return d.port.VID
+	return dnw.info.VID
 }
-
-func (d *DNW) GetPID() string {
-	if d.port == nil {
+func (dnw *DNW) GetPID() string {
+	if dnw.Closed() {
 		return ""
 	}
-	return d.port.PID
+	return dnw.info.PID
 }
-
-func (d *DNW) GetUSB() bool {
-	if d.port == nil {
+func (dnw *DNW) GetUSB() bool {
+	if dnw.Closed() {
 		return false
 	}
-	return d.port.IsUSB
-}
-
-func (d *DNW) ReadMsg() (*Message, error) {
-	if d.sock == nil {
-		return nil, fmt.Errorf("dnw: closed")
-	}
-
-	//d.Write([]byte("\n")) //Triggers a faster response for the next read
-
-	bytes := make([]byte, 0)
-	for {
-		p := make([]byte, 1)
-		n, err := d.Read(p)
-		if err != nil {
-			return NewMessage(string(bytes)), err
-		}
-		if n != 1 {
-			if len(bytes) == 0 {
-				continue
-			}
-			break
-		}
-		//if NewMessage(string(p[0])).IsControlBit() {
-		if p[0] == '\n' {
-			if len(bytes) == 0 {
-				continue
-			}
-			//In case of CRLF?
-			if bytes[len(bytes)-1] == '\r' {
-				fmt.Println("[V] Encountered CRLF")
-				bytes = bytes[:len(bytes)-1]
-			}
-			break
-		}
-		if len(bytes) == 0 {
-			switch p[0] {
-			case 'C':
-				return NewMessage("C"), nil
-			case '\x06':
-				return NewMessage("ACK"), nil
-			case '\x15':
-				return NewMessage("NAK"), nil
-			}
-		}
-		bytes = append(bytes, p...)
-	}
-
-	if len(bytes) == 0 {
-		return nil, nil
-	}
-
-	return NewMessage(string(bytes)), nil
-}
-
-func (d *DNW) WaitForMsg() (*Message, error) {
-	for {
-		msg, err := d.ReadMsg()
-		if err != nil {
-			return msg, err
-		}
-		if msg != nil {
-			return msg, nil
-		}
-	}
-}
-
-func (d *DNW) WriteCmd(c *Command) error {
-	cmd := c.Bytes()
-	if len(cmd) == 0 {
-		return nil
-	}
-
-	blockSize := 512
-	toWrite := blockSize
-	wrote := 0
-	for {
-		if wrote+toWrite >= len(cmd) {
-			toWrite -= (wrote + toWrite) - len(cmd)
-		}
-		n, err := d.Write(cmd[wrote : wrote+toWrite])
-		if err != nil {
-			return fmt.Errorf("dnw: incomplete write (%d/%d bytes): %v", wrote, len(cmd), err)
-		}
-		wrote += n
-		if wrote >= len(cmd) {
-			break
-		}
-	}
-	if wrote != len(cmd) {
-		return fmt.Errorf("dnw: incomplete write (%d/%d bytes)", wrote, len(cmd))
-	}
-
-	for {
-		msg, err := d.ReadMsg()
-		if err != nil {
-			return fmt.Errorf("dnw: error reading after writing (%d/%d bytes): %v", wrote, len(cmd), err)
-		}
-		leave := false
-		if msg != nil {
-			fmt.Printf("[V] Message received after writing (%d/%d bytes): %s\n", wrote, len(cmd), msg.String())
-			switch msg.Type() {
-			case "ACK":
-				leave = true
-			case "NAK":
-				return fmt.Errorf("dnw: nak after writing (%d/%d bytes)", wrote, len(cmd))
-			}
-		}
-		if leave {
-			break
-		}
-	}
-
-	/*if toWrite < blockSize {
-		toWrite = blockSize - toWrite
-		n, err := d.Write(make([]byte, toWrite))
-		if err != nil {
-			return fmt.Errorf("dnw: incomplete padding (%d/%d bytes): %v", n, toWrite, err)
-		}
-		if n != toWrite {
-			return fmt.Errorf("dnw: incomplete padding (%d/%d bytes)", n, toWrite)
-		}
-	}*/
-
-	n, err := d.Write([]byte{0x04}) //End-of-Transmission
-	if err != nil || n != 1 {
-		return fmt.Errorf("dnw: failed to write EOT after stream (%d/%d bytes): %v", n, 1, err)
-	}
-
-	return nil
-}
-
-func (d *DNW) Reset() error {
-	if err := d.sock.ResetInputBuffer(); err != nil {
-		return nil
-	}
-	if err := d.sock.ResetOutputBuffer(); err != nil {
-		return nil
-	}
-	return nil
-}
-
-func (d *DNW) Close() error {
-	if d.sock != nil {
-		if err := d.sock.Close(); err != nil {
-			return err
-		}
-		d.sock = nil
-		return nil
-	}
-	return fmt.Errorf("dnw: already closed")
-}
-
-func (d *DNW) Read(p []byte) (n int, err error) {
-	if d.sock == nil {
-		return 0, fmt.Errorf("dnw: closed")
-	}
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-	if err := d.sock.Drain(); err != nil {
-		return 0, err
-	}
-	return d.sock.Read(p)
-}
-
-func (d *DNW) Write(p []byte) (n int, err error) {
-	if d.sock == nil {
-		return 0, fmt.Errorf("dnw: closed")
-	}
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-	if n, err = d.sock.Write(p); err != nil {
-		return n, err
-	}
-	if err = d.sock.Drain(); err != nil {
-		return n, err
-	}
-	return n, nil
+	return dnw.info.IsUSB
 }

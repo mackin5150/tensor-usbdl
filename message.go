@@ -1,79 +1,62 @@
-package main
+package tensorutils
 
-import (
-	"strings"
-)
+import "strings"
 
-// exynos_usb_booting::09845001cddf16d00bd4\n
-// eub:req:09845001:DPM\n
-// C\n
 type Message struct {
-	typ string //C, eub, exynos_usb_booting, bl1 header fail, a literal carriage return
-	cmd string //req, irom_booting_failure
+	bytes []byte
+
+	cmd string //C, eub, exynos_usb_booting, bl1 header fail, a literal carriage return
+	sub string //req, irom_booting_failure
 	dev string //09845001cddf16d00bd4, 09845001
 	arg string //DPM, EPBL, bl1, ABL, ABLB, ...
 }
 
-func NewMessage(line string) *Message {
-	if line == "" {
+func NewMessage(bytes []byte) *Message {
+	if len(bytes) == 0 {
 		return nil
 	}
-	split := strings.Split(line, ":")
 
-	m := new(Message)
-	m.typ = split[0]
+	msg := new(Message)
+	msg.bytes = bytes
+
+	split := strings.Split(string(bytes), ":")
+	msg.cmd = split[0]
 	if len(split) > 1 {
-		m.cmd = split[1]
+		msg.sub = split[1]
 		if len(split) > 2 {
-			m.dev = split[2]
+			msg.dev = split[2]
 			if len(split) > 3 {
-				m.arg = split[3]
+				msg.arg = split[3]
 			}
 		}
 	}
 
-	if len(m.typ) > 12 && m.typ[len(m.typ)-12:] == " header fail" {
-		m.arg = m.typ[:len(m.typ)-12]
-		m.typ = "error"
-		m.cmd = "header fail"
+	if len(msg.cmd) > 12 && msg.cmd[len(msg.cmd)-12:] == " header fail" {
+		msg.arg = msg.cmd[:len(msg.cmd)-12]
+		msg.cmd = "error"
+		msg.sub = "header fail"
 	}
 
-	return m
+	return msg
 }
 
-func (m *Message) IsControlBit() bool {
-	switch m.Type() {
-	case "C", "\x1B", "\x00", "\x06", "\x0F", "\x2B", "\x15", "ACK", "NAK":
-		return true
-	}
-	return false
+func (msg *Message) Command() string {
+	return msg.cmd
+}
+func (msg *Message) SubCommand() string {
+	return msg.sub
+}
+func (msg *Message) Device() string {
+	return msg.dev
+}
+func (msg *Message) Argument() string {
+	return msg.arg
 }
 
-func (m *Message) String() string {
-	str := m.typ
-	if m.cmd != "" && m.arg != "" {
-		str += ":" + m.cmd + ":" + m.dev + ":" + m.arg
-	} else if m.dev != "" {
-		str += ":" + m.cmd + ":" + m.dev
-	} else if m.cmd != "" {
-		str += ":" + m.cmd
-	}
-	return str
-	//return fmt.Sprintf("%s (%x)", str, []byte(str))
+func (msg *Message) Bytes() []byte {
+	return msg.bytes
 }
 
-func (m *Message) Type() string {
-	return m.typ
-}
-
-func (m *Message) Command() string {
-	return m.cmd
-}
-
-func (m *Message) Device() string {
-	return m.dev
-}
-
-func (m *Message) Argument() string {
-	return m.arg
+func (msg *Message) String() string {
+	return string(msg.bytes)
 }

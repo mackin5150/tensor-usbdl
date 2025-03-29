@@ -1,18 +1,16 @@
-package main
+package tensorutils
 
-import (
-	"github.com/JoshuaDoes/crunchio"
-)
+import "github.com/JoshuaDoes/crunchio"
 
 var (
-	opDNW  = []byte("\x1BDNW")
-	cmdDNW = NewCommand(opDNW, nil, nil)
+	OpDNW  = []byte("\x1BDNW")
+	CmdDNW = NewCommand(OpDNW, nil, nil)
 
-	opC  = []byte("C")
-	cmdC = NewCommand(nil, opC, nil)
+	OpC  = []byte("C")
+	CmdC = NewCommand(nil, OpC, nil)
 
-	opStop  = []byte("\x1BDNW\x00\x00\x00\x00\x01\x00")
-	cmdStop = NewCommand(nil, opStop, nil)
+	OpStop  = []byte("\x1BDNW\x00\x00\x00\x00\x01\x00")
+	CmdStop = NewCommand(nil, OpStop, nil)
 )
 
 type Command struct {
