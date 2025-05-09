@@ -1,6 +1,7 @@
 package tensorutils
 
 import (
+	"strings"
 	"sync"
 
 	"go.bug.st/serial/enumerator"
@@ -28,7 +29,8 @@ func getDevice(vid, pid string) *enumerator.PortDetails {
 
 	for i := 0; i < len(knownDevices); i++ {
 		dev := knownDevices[i]
-		if dev.VID != vid || dev.PID != pid {
+		// On Linux the identifiers are lowercase, so uppercase everything before comparison
+		if strings.ToUpper(dev.VID) != strings.ToUpper(vid) || strings.ToUpper(dev.PID) != strings.ToUpper(pid) {
 			continue
 		}
 		return dev
