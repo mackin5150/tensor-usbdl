@@ -47,6 +47,9 @@ func GetDNW() (*DNW, error) {
 		dnw.info = dev
 		claimDNW[dev.Name] = dnw
 
+		//Lock the device mutex until the reader thread is started
+		dnw.mutex.Lock()
+
 		//Start the reader thread
 		go dnw.readThread()
 
@@ -166,6 +169,9 @@ func (dnw *DNW) readThread() {
 	dnw.buffer.SetStream(true) //Don't return an EOF when waiting on data
 	dnw.reader = dnw.buffer.Reference()
 	dnw.reader.SetName("EUB Reader")
+
+	//Unlock the device's mutex to allow I/O operations
+	dnw.mutex.Unlock()
 
 	for {
 		//Read the next chunk of data
