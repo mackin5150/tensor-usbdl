@@ -1,14 +1,16 @@
 package main
 
 import (
+	crand "crypto/rand"
 	"fmt"
+	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/JoshuaDoes/logger"
-	"github.com/JoshuaDoes/tensor-usbdl"
+	tensorutils "github.com/JoshuaDoes/tensor-usbdl"
 	"github.com/spf13/pflag"
 )
 
@@ -47,14 +49,15 @@ DNW:
 
 const (
 	app = "Tensor-USBDL"
-	ver = "v0.0.2"
+	ver = "v0.0.3"
 	god = "JoshuaDoes"
 )
 
 var (
-	help   = false
-	useDNW = false
-	bitUSB = false
+	help    = false
+	useDNW  = false
+	bitUSB  = false
+	fuzzDPM = false
 
 	src         = "sources"
 	factory     = "bootloader.img"
@@ -79,7 +82,8 @@ var (
 	crc     []byte
 	header  = 4096
 
-	log *logger.Logger
+	log  *logger.Logger
+	cha8 *mrand.ChaCha8
 )
 
 func usage() {
@@ -120,14 +124,15 @@ func usage() {
 		" -t, --tzsw    | string | TZSW (TrustZone SoftWare) image to serve          | %s\n"+
 		" -l, --ldfw    | string | LDFW (LoaDable FirmWare) image to serve           | %s\n"+
 		" --ufsfwupdate | string | UFS firmware update image to serve                | %s\n"+
-		" -d, --dpm     | string | DPM image to serve instead of zeroed 4KB\n"+
+		" -d, --dpm     | string | DPM image to serve instead of zeroed 12KB\n"+
 		"\n"+
 		" > Controls\n"+
-		" --address     | hex    | Target download address to write to                          | %X\n"+
+		" --address     | hex    | Target download address (or command) to write to             | %X\n"+
 		" --header      | number | Number of bytes to interpret as header for splittable images | %d\n"+
-		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW commands\n"+
-		" --dnw         | none   | Overrides the download address to %X\n"+
-		" --usb         | none   | sets the 1040th byte to 01 if it is 00\n",
+		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW messages\n"+
+		" --dnw         | none   | Overrides the download address (or command) to %X\n"+
+		" --usb         | none   | Sets the 1040th byte to 01 if it is 00\n"+
+		" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n",
 		app, ver, god,
 		src, factory, ota,
 		prog,
@@ -144,6 +149,7 @@ func main() {
 	pflag.BoolVarP(&help, "help", "h", false, "")
 	pflag.BoolVar(&useDNW, "dnw", false, "")
 	pflag.BoolVar(&bitUSB, "usb", false, "")
+	pflag.BoolVar(&fuzzDPM, "fuzzdpm", false, "")
 	pflag.StringVarP(&src, "src", "i", src, "")
 	pflag.StringVarP(&factory, "factory", "f", factory, "")
 	pflag.StringVarP(&ota, "ota", "o", ota, "")
@@ -174,12 +180,23 @@ func main() {
 
 	log = logger.NewLogger(app, 2)
 
+	var seed [32]byte
+	seedtmp := make([]byte, len(seed))
+	_, err := crand.Read(seedtmp)
+	if err != nil {
+		panic("failed to seed RNG: " + err.Error())
+	}
+	for i := 0; i < len(seed); i++ {
+		seed[i] = seedtmp[i]
+	}
+	cha8 = mrand.NewChaCha8(seed)
+
 	if header <= 0 {
 		log.Errorln("[!] Header size must be positive number!")
 		return
 	}
 
-	if useDNW {
+	if useDNW && len(address) == 0 {
 		address = tensorutils.OpDNW
 	}
 
@@ -259,14 +276,23 @@ func main() {
 
 					switch strings.ToUpper(msg.Argument()) {
 					case "BL1":
-						err = writeFile(dnw, bl1, address)
+						err = writeFile(dnw, address, nil, bl1)
 					case "EPBL":
-						err = writeFile(dnw, pbl, address)
+						err = writeFile(dnw, address, nil, pbl)
 					case "DPM":
-						if dpm != "" {
-							err = writeFile(dnw, dpm, address)
+						if !fuzzDPM && dpm != "" {
+							err = writeFile(dnw, address, nil, dpm)
 						} else {
-							err = writeRaw(dnw, make([]byte, 4096), address)
+							dpmRaw := make([]byte, 12288)
+							if fuzzDPM {
+								_, err = cha8.Read(dpmRaw)
+								dpmCached := fmt.Sprintf("dpm_%d.img", time.Now().UnixNano())
+								log.Tracef("Caching fuzzed DPM image to %s", dpmCached)
+								os.WriteFile(dpmCached, dpmRaw, 0644)
+							}
+							if err == nil {
+								err = writeRaw(dnw, address, nil, dpmRaw)
+							}
 						}
 					default:
 						err = fmt.Errorf("unknown image requested: %s", msg.Argument())
@@ -275,26 +301,15 @@ func main() {
 					if err == nil {
 						log.Infoln("Successfully wrote", msg.Argument())
 						lastSent = msg.Argument()
-					} else {
-						log.Errorf("Sending stop, failed to write %s: %v", msg.Argument(), err)
-						dnw.WriteCmd(tensorutils.CmdStop)
 					}
 				case "ack":
 					log.Debugln("Acknowledged", msg.Argument())
-					/*if msg.Argument() == "bl1" {
-						err = writeFile(dnw, pbl, address)
-						if err != nil {
-							log.Errorf("Sending stop, failed to write EPBL: %v", err)
-							dnw.WriteCmd(tensorutils.CmdStop)
-						} else {
-							log.Infoln("Successfully wrote EPBL")
-							lastSent = "EPBL"
-						}
-					}*/
 				case "nak":
 					log.Errorln("Refused", msg.Argument())
+					log.Errorf("Sending stop, failed to write %s", msg.Argument())
+					dnw.WriteCmd(tensorutils.CmdStop)
 				default:
-					log.Errorln("Unknown EUB message:", msg)
+					err = fmt.Errorf("unknown EUB message: %s", msg)
 				}
 			case "irom_booting_failure":
 				trace := strings.Split(msg.Device(), "\x00")
@@ -322,16 +337,15 @@ func main() {
 				for i := 0; i < len(trace); i++ {
 					brErr += fmt.Sprintf("\n> %s", trace[i])
 				}
-				log.Errorln(brErr)
+				err = fmt.Errorf(brErr)
 			case "error":
-				log.Errorf("Processed error: %s: %s", msg.SubCommand(), msg.Argument())
+				err = fmt.Errorf("%s: %s", msg.SubCommand(), msg.Argument())
 			default:
-				log.Errorf("Unknown message: %s\n0x%0X", msg, msg)
+				err = fmt.Errorf("unhandled message: 0x%0X (%s)", msg, msg)
 			}
 
 			if err != nil {
-				log.Errorln("Fallback error:", err)
-				break
+				log.Errorf("Internal error: %v", err)
 			}
 		}
 

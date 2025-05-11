@@ -24,42 +24,40 @@ func readFile(file string) ([]byte, error) {
 	return bytes, err
 }
 
-func writeFile(dnw *tensorutils.DNW, file string, addr []byte) error {
+func writeFile(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
 	bytes, err := readFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes, addr)
+	return writeRaw(dnw, cmd, arg, bytes)
 }
 
-func writeFileHead(dnw *tensorutils.DNW, file string, addr []byte) error {
+func writeFileHead(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
 	bytes, err := readFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes[:header], addr)
+	return writeRaw(dnw, cmd, arg, bytes[:header])
 }
 
-func writeFileBody(dnw *tensorutils.DNW, file string, addr []byte) error {
+func writeFileBody(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
 	bytes, err := readFile(file)
 	if err != nil {
 		return err
 	}
-	return writeRaw(dnw, bytes[header:], addr)
+	return writeRaw(dnw, cmd, arg, bytes[header:])
 }
 
-func writeRaw(dnw *tensorutils.DNW, bytes, addr []byte) error {
-	if addr != nil {
-		if err := dnw.WriteCmd(tensorutils.NewCommand(address, bytes, checksum(bytes))); err != nil {
-			log.Errorf("Failed to write %d bytes to address %X: %v", len(bytes), addr, err)
-			return err
+func writeRaw(dnw *tensorutils.DNW, cmd, arg, bytes []byte) error {
+	if cmd != nil {
+		if err := dnw.WriteCmd(tensorutils.NewCommand(cmd, arg, bytes, checksum(bytes))); err != nil {
+			return fmt.Errorf("failed to write %d bytes to address %X: %v", len(bytes), cmd, err)
 		}
-		log.Debugf("Wrote %d bytes to address %X", len(bytes), addr)
+		log.Debugf("Wrote %d bytes to address %X", len(bytes), cmd)
 		return nil
 	}
-	if err := dnw.WriteCmd(tensorutils.NewCommand(nil, bytes, nil)); err != nil {
-		log.Errorf("Failed to write %d bytes: %v", len(bytes), err)
-		return err
+	if err := dnw.WriteCmd(tensorutils.NewCommand(nil, nil, bytes, nil)); err != nil {
+		return fmt.Errorf("failed to write %d bytes: %v", len(bytes), err)
 	}
 	log.Debugf("Wrote %d bytes", len(bytes))
 	return nil
@@ -73,14 +71,35 @@ func checksum(bytes []byte) []byte {
 	} else {
 		var sum uint16
 
-		for i := 0; i < len(bytes); i++ {
+		/*for i := 0; i < len(bytes); i++ {
 			sum += uint16(bytes[i])
+		}*/
+
+		for _, b := range bytes[8 : len(bytes)-2] {
+			sum += uint16(b)
 		}
+		sum &= 0xFFFF
 
 		buf.Buffer().WriteU16LENext([]uint16{sum})
 		log.Tracef("Calculated checksum: %X", sum)
 	}
 	return buf.Bytes()
+}
+
+func bumpUint32(b []byte) []byte {
+	u32 := crunchio.NewBuffer("u32", b)
+	v := u32.Buffer().ReadU32LE(0, 1)[0]
+	v += 1
+	u32.Buffer().WriteU32LE(0, []uint32{v})
+	return u32.Bytes()
+}
+
+func bumpUint16(b []byte) []byte {
+	u16 := crunchio.NewBuffer("u16", b)
+	v := u16.Buffer().ReadU16LE(0, 1)[0]
+	v += 1
+	u16.Buffer().WriteU16LE(0, []uint16{v})
+	return u16.Bytes()
 }
 
 func isDir(paths ...string) error {

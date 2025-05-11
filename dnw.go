@@ -98,6 +98,12 @@ type DNW struct {
 func (dnw *DNW) ReadMsg() (*Message, error) {
 	dnw.mutex.Lock()
 	defer dnw.mutex.Unlock()
+
+	//Read from a clone of the message queue
+	return dnw.readMsg(dnw.reader)
+}
+
+func (dnw *DNW) readMsg(r *crunchio.Buffer) (*Message, error) {
 	if dnw.buffer == nil {
 		return nil, fmt.Errorf("dnw: buffer was freed")
 	}
@@ -105,7 +111,7 @@ func (dnw *DNW) ReadMsg() (*Message, error) {
 	buf := make([]byte, 0)
 	for {
 		p := make([]byte, 1)
-		n, err := dnw.read(p)
+		n, err := dnw.read(r, p)
 		if err != nil {
 			if len(buf) > 0 {
 				return NewMessage(buf), err
@@ -116,7 +122,7 @@ func (dnw *DNW) ReadMsg() (*Message, error) {
 			if len(buf) > 0 {
 				//We haven't read a full message yet, but we have some data!
 				//Seek backwards and return an empty message so caller can try again on loop
-				dnw.reader.Seek(int64(-1*len(buf)), io.SeekCurrent)
+				r.Seek(int64(-1*len(buf)), io.SeekCurrent)
 				return nil, nil
 			}
 
@@ -150,11 +156,10 @@ func (dnw *DNW) Read(p []byte) (int, error) {
 		return 0, fmt.Errorf("dnw: closed")
 	}
 
-	return dnw.read(p)
+	return dnw.read(dnw.reader, p)
 }
-func (dnw *DNW) read(p []byte) (int, error) {
-	//Read from a clone of the message queue
-	return dnw.reader.Read(p)
+func (dnw *DNW) read(r *crunchio.Buffer, p []byte) (int, error) {
+	return r.Read(p)
 }
 func (dnw *DNW) readThread() {
 	dnw.buffer = crunchio.NewBuffer("EUB Writer", nil)
@@ -199,18 +204,42 @@ func (dnw *DNW) WriteMsg(msg *Message) error {
 
 	p := msg.Bytes()
 
-	//Append a newline if one was not written, marks end of message
-	/*if len(p) == 0 {
-		p = []byte{'\n'}
-	} else if p[len(p)-1] != '\n' {
-		p = append(p, '\n')
-	}*/
+	/*r := dnw.buffer.Reference()
+	defer r.Close()
+	r.Seek(0, io.SeekEnd) //Seek to the end of the buffer to only process new responses after writing each block*/
 
 	//Write on loop until the end of message or error
 	blockSize := 512
 	wrote := 0
 	left := blockSize
 	for {
+		if dnw.Closed() {
+			return fmt.Errorf("dnw: closed but only wrote %d/%d bytes", wrote, len(p))
+		}
+
+		/*msg, err := dnw.readMsg(r)
+		if err != nil {
+			return fmt.Errorf("dnw: failed to read message after writing %d/%d bytes: %v", wrote, len(p), err)
+		}
+		if msg != nil {
+			switch msg.Command() {
+			case "C":
+				return fmt.Errorf("dnw: %s control received after writing %d/%d bytes", msg.Command(), wrote, len(p))
+			case "\x00":
+				return fmt.Errorf("dnw: 0x%0X control received after writing %d/%d bytes", msg.Command(), wrote, len(p))
+			case "eub":
+				switch msg.SubCommand() {
+				case "req":
+					return fmt.Errorf("dnw: new request received after writing %d/%d bytes", wrote, len(p))
+				case "ack":
+					return fmt.Errorf("dnw: ack received after writing %d/%d bytes", wrote, len(p))
+				case "nak":
+					return fmt.Errorf("dnw: nak received after writing %d/%d bytes", wrote, len(p))
+				}
+			}
+			fmt.Printf("dnw: received message after writing %d/%d bytes: %s\n", wrote, len(p), msg.String())
+		}*/
+
 		//Keep leftover bytes within msg bounds
 		if wrote+left >= len(p) {
 			left -= (wrote + left) - len(p)
@@ -228,6 +257,7 @@ func (dnw *DNW) WriteMsg(msg *Message) error {
 	if wrote != len(p) {
 		return fmt.Errorf("dnw: only wrote %d/%d bytes", wrote, len(p))
 	}
+
 	return nil
 }
 func (dnw *DNW) Write(p []byte) (int, error) {
