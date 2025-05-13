@@ -243,6 +243,9 @@ func main() {
 		log.Traceln("- Serial:", dnw.GetSerial())
 		log.Traceln("- USB:   ", dnw.GetUSB())
 
+		//Send a newline character to make sure the device sends us the first message
+		dnw.Write([]byte{'\n'})
+
 		for {
 			if dnw.Closed() {
 				break

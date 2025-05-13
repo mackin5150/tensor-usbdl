@@ -71,14 +71,9 @@ func checksum(bytes []byte) []byte {
 	} else {
 		var sum uint16
 
-		/*for i := 0; i < len(bytes); i++ {
+		for i := 0; i < len(bytes); i++ {
 			sum += uint16(bytes[i])
-		}*/
-
-		for _, b := range bytes[8 : len(bytes)-2] {
-			sum += uint16(b)
 		}
-		sum &= 0xFFFF
 
 		buf.Buffer().WriteU16LENext([]uint16{sum})
 		log.Tracef("Calculated checksum: %X", sum)
