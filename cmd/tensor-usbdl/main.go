@@ -58,6 +58,7 @@ var (
 	useDNW  = false
 	bitUSB  = false
 	fuzzDPM = false
+	stop    = false
 
 	src         = "sources"
 	factory     = "bootloader.img"
@@ -132,7 +133,8 @@ func usage() {
 		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW messages\n"+
 		" --dnw         | none   | Overrides the download address (or command) to %X\n"+
 		" --usb         | none   | Sets the 1040th byte to 01 if it is 00\n"+
-		" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n",
+		" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n"+
+		" --stop        | none   | Sends the DNW STOP command to the device upon connection\n",
 		app, ver, god,
 		src, factory, ota,
 		prog,
@@ -150,6 +152,7 @@ func main() {
 	pflag.BoolVar(&useDNW, "dnw", false, "")
 	pflag.BoolVar(&bitUSB, "usb", false, "")
 	pflag.BoolVar(&fuzzDPM, "fuzzdpm", false, "")
+	pflag.BoolVar(&stop, "stop", false, "")
 	pflag.StringVarP(&src, "src", "i", src, "")
 	pflag.StringVarP(&factory, "factory", "f", factory, "")
 	pflag.StringVarP(&ota, "ota", "o", ota, "")
@@ -245,6 +248,11 @@ func main() {
 
 		//Send a newline character to make sure the device sends us the first message
 		dnw.Write([]byte{'\n'})
+
+		if stop {
+			log.Infoln("Sending stop command unconditionally")
+			dnw.WriteCmd(tensorutils.CmdStop)
+		}
 
 		for {
 			if dnw.Closed() {
