@@ -54,7 +54,9 @@ const (
 
 var (
 	bootloaders map[string]*crunchio.Buffer = make(map[string]*crunchio.Buffer)
+)
 
+var (
 	help    = false
 	useDNW  = false
 	bitUSB  = false
@@ -73,7 +75,9 @@ var (
 	dpm         = ""
 	pbl         = "pbl.img"
 	bl2         = "bl2.img"
+	gcf         = "gcf.img"
 	gsa         = "gsa.img"
+	gsaf        = "gsaf.img"
 	abl         = "abl.img"
 	tzsw        = "tzsw.img"
 	ldfw        = "ldfw.img"
@@ -121,7 +125,9 @@ func usage() {
 		" -2, --bl2     | string | BL2 image to serve                                | %s\n"+
 		" -a, --abl     | string | ABL image to serve                                | %s\n"+
 		" -3, --bl31    | string | BL31 image to serve                               | %s\n"+
+		" -F, --gcf     | string | GCF image to serve                                | %s\n"+
 		" -g, --gsa     | string | GSA image to serve                                | %s\n"+
+		" -G, --gsaf    | string | GSAF image to serve                               | %s\n"+
 		" -t, --tzsw    | string | TZSW (TrustZone SoftWare) image to serve          | %s\n"+
 		" -l, --ldfw    | string | LDFW (LoaDable FirmWare) image to serve           | %s\n"+
 		" --ufsfwupdate | string | UFS firmware update image to serve                | %s\n"+
@@ -140,7 +146,7 @@ func usage() {
 		prog,
 		src, factory, ota,
 		ufs, partition0, partition1, partition2, partition3,
-		bl1, pbl, bl2, abl, bl31, gsa, tzsw, ldfw, ufsfwupdate,
+		bl1, pbl, bl2, abl, bl31, gcf, gsa, gsaf, tzsw, ldfw, ufsfwupdate,
 		address, header, tensorutils.OpDNW)
 	fmt.Fprintf(os.Stderr, "%s\n", text)
 }
@@ -166,7 +172,9 @@ func main() {
 	pflag.StringVarP(&bl2, "bl2", "2", bl2, "")
 	pflag.StringVarP(&abl, "abl", "a", abl, "")
 	pflag.StringVarP(&bl31, "bl31", "3", bl31, "")
+	pflag.StringVarP(&gcf, "gcf", "F", gcf, "")
 	pflag.StringVarP(&gsa, "gsa", "g", gsa, "")
+	pflag.StringVarP(&gsaf, "gsaf", "G", gsaf, "")
 	pflag.StringVarP(&tzsw, "tzsw", "t", tzsw, "")
 	pflag.StringVarP(&ldfw, "ldfw", "l", ldfw, "")
 	pflag.StringVar(&ufsfwupdate, "ufsfwupdate", ufsfwupdate, "")
@@ -282,6 +290,16 @@ func main() {
 	}
 	bootloaders["BL31"] = crunchio.NewBuffer(bl31, img)
 
+	//Bootloaders that may not be needed depending on the device
+	img, err = readFile(gcf)
+	if err == nil {
+		bootloaders["GCF"] = crunchio.NewBuffer(gcf, img)
+	}
+	img, err = readFile(gsaf)
+	if err == nil {
+		bootloaders["GSAF"] = crunchio.NewBuffer(gsaf, img)
+	}
+
 	//----------------------
 
 	lastSent := ""
@@ -390,6 +408,15 @@ func main() {
 				case "BL3B":
 					bl = bootloaders["BL31"]
 					op = 2
+				case "GCF":
+					bl = bootloaders["GCF"]
+					op = 1
+				case "GCFB":
+					bl = bootloaders["GCF"]
+					op = 2
+				case "GSAF":
+					bl = bootloaders["GSAF"]
+					op = 0
 				}
 
 				if bl == nil {
