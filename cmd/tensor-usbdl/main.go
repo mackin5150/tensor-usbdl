@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JoshuaDoes/crunchio"
 	"github.com/JoshuaDoes/logger"
 	tensorutils "github.com/JoshuaDoes/tensor-usbdl"
 	"github.com/spf13/pflag"
@@ -48,10 +49,12 @@ DNW:
 const (
 	app = "Tensor-USBDL"
 	ver = "v0.0.3"
-	god = "JoshuaDoes"
+	dev = "JoshuaDoes"
 )
 
 var (
+	bootloaders map[string]*crunchio.Buffer = make(map[string]*crunchio.Buffer)
+
 	help    = false
 	useDNW  = false
 	bitUSB  = false
@@ -67,19 +70,19 @@ var (
 	partition2  = "partition_2.img"
 	partition3  = "partition_3.img"
 	bl1         = "bl1.img"
+	dpm         = ""
 	pbl         = "pbl.img"
 	bl2         = "bl2.img"
-	abl         = "abl.img"
-	bl31        = "bl31.img"
 	gsa         = "gsa.img"
+	abl         = "abl.img"
 	tzsw        = "tzsw.img"
 	ldfw        = "ldfw.img"
+	bl31        = "bl31.img"
 	ufsfwupdate = "ufsfwupdate.img"
-	dpm         = ""
 
 	address []byte
 	crc     []byte
-	header  = 4096
+	header  = int64(4096)
 
 	log *logger.Logger
 )
@@ -132,7 +135,7 @@ func usage() {
 		" --usb         | none   | Sets the 1040th byte to 01 if it is 00\n"+
 		" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n"+
 		" --stop        | none   | Sends the DNW STOP command to the device upon connection\n",
-		app, ver, god,
+		app, ver, dev,
 		src, factory, ota,
 		prog,
 		src, factory, ota,
@@ -169,7 +172,7 @@ func main() {
 	pflag.StringVar(&ufsfwupdate, "ufsfwupdate", ufsfwupdate, "")
 	pflag.StringVarP(&dpm, "dpm", "d", dpm, "")
 	pflag.BytesHexVar(&address, "address", address, "")
-	pflag.IntVar(&header, "header", header, "")
+	pflag.Int64Var(&header, "header", header, "")
 	pflag.BytesHexVarP(&crc, "crc", "c", crc, "")
 	pflag.Parse()
 
@@ -206,13 +209,84 @@ func main() {
 	}*/
 
 	//TODO: Actually use the FBPKv2 or OTA when specified
+
+	//----------------------
+	// Load bootloaders into memory
+
+	var img []byte
+	var err error
+
+	img = make([]byte, 12288)
+	if dpm != "" {
+		img, err = readFile(dpm)
+		if err != nil {
+			log.Errorf("Error reading DPM image: %v", err)
+			return
+		}
+	}
+	bootloaders["DPM"] = crunchio.NewBuffer(dpm, img)
+
+	img, err = readFile(bl1)
+	if err != nil {
+		log.Errorf("Error reading BL1 image: %v", err)
+		return
+	}
+	bootloaders["BL1"] = crunchio.NewBuffer(bl1, img)
+
+	img, err = readFile(pbl)
+	if err != nil {
+		log.Errorf("Error reading PBL image: %v", err)
+		return
+	}
+	bootloaders["PBL"] = crunchio.NewBuffer(pbl, img)
+
+	img, err = readFile(bl2)
+	if err != nil {
+		log.Errorf("Error reading BL2 image: %v", err)
+		return
+	}
+	bootloaders["BL2"] = crunchio.NewBuffer(bl2, img)
+
+	img, err = readFile(gsa)
+	if err != nil {
+		log.Errorf("Error reading GSA image: %v", err)
+		return
+	}
+	bootloaders["GSA"] = crunchio.NewBuffer(gsa, img)
+
+	img, err = readFile(abl)
+	if err != nil {
+		log.Errorf("Error reading ABL image: %v", err)
+		return
+	}
+	bootloaders["ABL"] = crunchio.NewBuffer(abl, img)
+
+	img, err = readFile(tzsw)
+	if err != nil {
+		log.Errorf("Error reading TZSW image: %v", err)
+		return
+	}
+	bootloaders["TZSW"] = crunchio.NewBuffer(tzsw, img)
+
+	img, err = readFile(ldfw)
+	if err != nil {
+		log.Errorf("Error reading LDFW image: %v", err)
+		return
+	}
+	bootloaders["LDFW"] = crunchio.NewBuffer(ldfw, img)
+
+	img, err = readFile(bl31)
+	if err != nil {
+		log.Errorf("Error reading BL31 image: %v", err)
+		return
+	}
+	bootloaders["BL31"] = crunchio.NewBuffer(bl31, img)
+
 	//----------------------
 
 	lastSent := ""
 	for {
 		var dnw *tensorutils.DNW
-		var err error
-
 		var timeStart time.Time
 		var lastTrace []string
 
@@ -267,46 +341,70 @@ func main() {
 					log.Traceln("Not allowed to upload right now")
 					continue
 				}
-				log.Infof("> %s", request)
 				upload = false
+				log.Infof("> %s", request)
+
+				var bl *crunchio.Buffer
+				var op int //0=full, 1=header, 2=body
 
 				switch request { //Cases ordered by requests on Pixel 7 series
 				case "BL1":
-					err = writeFile(dnw, address, nil, bl1)
+					bl = bootloaders["BL1"]
+					op = 0
 				case "DPM":
-					if dpm != "" {
-						err = writeFile(dnw, address, nil, dpm)
-					} else {
-						err = writeRaw(dnw, address, nil, make([]byte, 12288))
-					}
+					bl = bootloaders["DPM"]
+					op = 0
 				case "EPBL":
-					err = writeFile(dnw, address, nil, pbl)
+					bl = bootloaders["PBL"]
+					op = 0
 				case "BL2":
-					err = writeFileHead(dnw, address, nil, bl2)
+					bl = bootloaders["BL2"]
+					op = 1
 				case "BL2B":
-					err = writeFileBody(dnw, address, nil, bl2)
+					bl = bootloaders["BL2"]
+					op = 2
 				case "GSA1":
-					err = writeFile(dnw, address, nil, gsa)
+					bl = bootloaders["GSA"]
+					op = 0
 				case "ABL":
-					err = writeFileHead(dnw, address, nil, abl)
+					bl = bootloaders["ABL"]
+					op = 1
 				case "ABLB":
-					err = writeFileBody(dnw, address, nil, abl)
+					bl = bootloaders["ABL"]
+					op = 2
 				case "TZSW":
-					err = writeFileHead(dnw, address, nil, tzsw)
+					bl = bootloaders["TZSW"]
+					op = 1
 				case "TZSB":
-					err = writeFileBody(dnw, address, nil, tzsw)
+					bl = bootloaders["TZSW"]
+					op = 2
 				case "LDFW":
-					err = writeFileHead(dnw, address, nil, ldfw)
+					bl = bootloaders["LDFW"]
+					op = 1
 				case "LDFB":
-					err = writeFileBody(dnw, address, nil, ldfw)
+					bl = bootloaders["LDFW"]
+					op = 2
 				case "BL31":
-					err = writeFileHead(dnw, address, nil, bl31)
+					bl = bootloaders["BL31"]
+					op = 1
 				case "BL3B":
-					err = writeFileBody(dnw, address, nil, bl31)
-				default:
-					err = fmt.Errorf("unknown image requested: %s", request)
+					bl = bootloaders["BL31"]
+					op = 2
 				}
 
+				if bl == nil {
+					err = fmt.Errorf("unknown image requested: %s", request)
+				} else {
+					size := int64(bl.Size())
+					switch op {
+					case 0:
+						err = writeRaw(dnw, address, nil, bl.Bytes())
+					case 1:
+						err = writeRaw(dnw, address, nil, bl.Buffer().ReadBytes(0, header))
+					case 2:
+						err = writeRaw(dnw, address, nil, bl.Buffer().ReadBytes(header, size-header))
+					}
+				}
 				if err == nil {
 					log.Infof("Sent %s", request)
 					lastSent = request

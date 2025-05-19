@@ -10,81 +10,12 @@ import (
 	tensorutils "github.com/JoshuaDoes/tensor-usbdl"
 )
 
-func readFile(file string, offset, length int) (bytes []byte, err error) {
-	bytes, err = rf(src+"/"+file, offset, length)
+func readFile(file string) (bytes []byte, err error) {
+	bytes, err = os.ReadFile(src + "/" + file)
 	if err != nil {
-		bytes, err = rf(file, offset, length)
+		bytes, err = os.ReadFile(file)
 	}
 	return
-}
-
-func rf(file string, offset, length int) ([]byte, error) {
-	if offset == 0 && length == 0 {
-		return os.ReadFile(file)
-	}
-
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	if _, err = f.Seek(int64(offset), 0); err != nil {
-		return nil, err
-	}
-
-	var bytes []byte
-	if length > 0 {
-		bytes = make([]byte, length)
-	} else {
-		fi, err := f.Stat()
-		if err != nil {
-			return nil, err
-		}
-		length = int(fi.Size()) - offset
-		if length <= 0 {
-			return nil, fmt.Errorf("file too small for offset:%d length:%d", offset, length)
-		}
-	}
-
-	n, err := f.Read(bytes)
-	if err != nil {
-		return nil, err
-	}
-	if n != length {
-		return nil, fmt.Errorf("read %d bytes, expected %d", n, length)
-	}
-
-	//Set USB-bootable bit (first bit) in header of bootloader
-	if bitUSB && offset <= 1040 && len(bytes) > (1040-offset) {
-		bytes[1040-offset] |= 1
-	}
-
-	return bytes, err
-}
-
-func writeFile(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
-	bytes, err := readFile(file, 0, 0)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, cmd, arg, bytes)
-}
-
-func writeFileHead(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
-	bytes, err := readFile(file, 0, header)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, cmd, arg, bytes)
-}
-
-func writeFileBody(dnw *tensorutils.DNW, cmd, arg []byte, file string) error {
-	bytes, err := readFile(file, header, 0)
-	if err != nil {
-		return err
-	}
-	return writeRaw(dnw, cmd, arg, bytes)
 }
 
 func writeRaw(dnw *tensorutils.DNW, cmd, arg, bytes []byte) error {
