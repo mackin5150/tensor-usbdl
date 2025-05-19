@@ -3,7 +3,6 @@ package tensorutils
 import (
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 	"time"
 
@@ -217,14 +216,10 @@ func (dnw *DNW) WriteMsg(msg *Message) error {
 	defer r.Close()
 	r.Seek(0, io.SeekEnd) //Seek to the end of the buffer to only process new responses after writing each block*/
 
-	blockSize := 512
-	if runtime.GOOS == "windows" {
-		blockSize = 10240 //Windows has a known-large buffer size that remains stable over serial
-	}
-
 	//Write on loop until the end of message or error
-	wrote := 0
+	blockSize := 10240
 	left := blockSize
+	wrote := 0
 	for {
 		if dnw.Closed() {
 			return fmt.Errorf("dnw: closed but only wrote %d/%d bytes", wrote, len(p))
