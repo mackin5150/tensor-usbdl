@@ -266,6 +266,7 @@ func (dnw *DNW) WriteMsg(msg *Message) error {
 		return fmt.Errorf("dnw: only wrote %d/%d bytes", wrote, len(p))
 	}
 
+	time.Sleep(1)
 	return nil
 }
 func (dnw *DNW) Write(p []byte) (int, error) {
