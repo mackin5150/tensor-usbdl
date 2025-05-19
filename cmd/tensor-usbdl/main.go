@@ -84,8 +84,8 @@ var (
 	bl31        = "bl31.img"
 	ufsfwupdate = "ufsfwupdate.img"
 
-	address []byte
-	crc     []byte
+	address = tensorutils.OpDNW
+	crc     = []byte{0xFF, 0xFF}
 	header  = int64(4096)
 
 	log *logger.Logger
