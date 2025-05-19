@@ -27,6 +27,7 @@ func rf(file string, offset, length int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
 	if _, err = f.Seek(int64(offset), 0); err != nil {
 		return nil, err
