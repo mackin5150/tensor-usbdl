@@ -1,9 +1,7 @@
 package main
 
 import (
-	crand "crypto/rand"
 	"fmt"
-	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,8 +81,7 @@ var (
 	crc     []byte
 	header  = 4096
 
-	log  *logger.Logger
-	cha8 *mrand.ChaCha8
+	log *logger.Logger
 )
 
 func usage() {
@@ -183,17 +180,6 @@ func main() {
 
 	log = logger.NewLogger(app, 2)
 
-	var seed [32]byte
-	seedtmp := make([]byte, len(seed))
-	_, err := crand.Read(seedtmp)
-	if err != nil {
-		panic("failed to seed RNG: " + err.Error())
-	}
-	for i := 0; i < len(seed); i++ {
-		seed[i] = seedtmp[i]
-	}
-	cha8 = mrand.NewChaCha8(seed)
-
 	if header <= 0 {
 		log.Errorln("[!] Header size must be positive number!")
 		return
@@ -254,6 +240,8 @@ func main() {
 			dnw.WriteCmd(tensorutils.CmdStop)
 		}
 
+		request := ""
+		upload := false
 		for {
 			if dnw.Closed() {
 				break
@@ -275,50 +263,74 @@ func main() {
 
 			switch msg.Command() {
 			case "C":
-				log.Traceln("Received control:", msg.Command())
+				if !upload {
+					log.Traceln("Not allowed to upload right now")
+					continue
+				}
+				log.Infof("> %s", request)
+				upload = false
+
+				switch request { //Cases ordered by requests on Pixel 7 series
+				case "BL1":
+					err = writeFile(dnw, address, nil, bl1)
+				case "DPM":
+					if dpm != "" {
+						err = writeFile(dnw, address, nil, dpm)
+					} else {
+						err = writeRaw(dnw, address, nil, make([]byte, 12288))
+					}
+				case "EPBL":
+					err = writeFile(dnw, address, nil, pbl)
+				case "BL2":
+					err = writeFileHead(dnw, address, nil, bl2)
+				case "BL2B":
+					err = writeFileBody(dnw, address, nil, bl2)
+				case "GSA1":
+					err = writeFile(dnw, address, nil, gsa)
+				case "ABL":
+					err = writeFileHead(dnw, address, nil, abl)
+				case "ABLB":
+					err = writeFileBody(dnw, address, nil, abl)
+				case "TZSW":
+					err = writeFileHead(dnw, address, nil, tzsw)
+				case "TZSB":
+					err = writeFileBody(dnw, address, nil, tzsw)
+				case "LDFW":
+					err = writeFileHead(dnw, address, nil, ldfw)
+				case "LDFB":
+					err = writeFileBody(dnw, address, nil, ldfw)
+				case "BL31":
+					err = writeFileHead(dnw, address, nil, bl31)
+				case "BL3B":
+					err = writeFileBody(dnw, address, nil, bl31)
+				default:
+					err = fmt.Errorf("unknown image requested: %s", request)
+				}
+
+				if err == nil {
+					log.Infof("Sent %s", request)
+					lastSent = request
+				}
 			case "\x00":
 				log.Tracef("Received control: 0x%0X", msg.Command())
 			case "exynos_usb_booting":
 				log.Debugln("Device identified as", msg.Device())
 			case "eub":
+				bootloader := strings.ToUpper(msg.Argument())
 				switch msg.SubCommand() {
 				case "req":
-					log.Infoln("Requested", msg.Argument())
-
-					switch strings.ToUpper(msg.Argument()) {
-					case "BL1":
-						err = writeFile(dnw, address, nil, bl1)
-					case "EPBL":
-						err = writeFile(dnw, address, nil, pbl)
-					case "DPM":
-						if !fuzzDPM && dpm != "" {
-							err = writeFile(dnw, address, nil, dpm)
-						} else {
-							dpmRaw := make([]byte, 12288)
-							if fuzzDPM {
-								_, err = cha8.Read(dpmRaw)
-								dpmCached := fmt.Sprintf("dpm_%d.img", time.Now().UnixNano())
-								log.Tracef("Caching fuzzed DPM image to %s", dpmCached)
-								os.WriteFile(dpmCached, dpmRaw, 0644)
-							}
-							if err == nil {
-								err = writeRaw(dnw, address, nil, dpmRaw)
-							}
-						}
-					default:
-						err = fmt.Errorf("unknown image requested: %s", msg.Argument())
+					if request == bootloader {
+						log.Traceln("Received duplicate bootloader request")
+						continue
 					}
-
-					if err == nil {
-						log.Infoln("Successfully wrote", msg.Argument())
-						lastSent = msg.Argument()
-					}
+					log.Infoln("Requested", bootloader)
+					request = bootloader
+					upload = true
 				case "ack":
-					log.Debugln("Acknowledged", msg.Argument())
+					log.Debugln("Acknowledged", bootloader)
+					upload = true
 				case "nak":
-					log.Errorln("Refused", msg.Argument())
-					log.Errorf("Sending stop, failed to write %s", msg.Argument())
-					dnw.WriteCmd(tensorutils.CmdStop)
+					log.Errorln("Refused", bootloader)
 				default:
 					err = fmt.Errorf("unknown EUB message: %s", msg)
 				}
@@ -348,7 +360,7 @@ func main() {
 				for i := 0; i < len(trace); i++ {
 					brErr += fmt.Sprintf("\n> %s", trace[i])
 				}
-				err = fmt.Errorf(brErr)
+				err = fmt.Errorf("%s", brErr)
 			case "error":
 				err = fmt.Errorf("%s: %s", msg.SubCommand(), msg.Argument())
 			default:

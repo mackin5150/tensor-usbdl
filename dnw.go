@@ -3,6 +3,7 @@ package tensorutils
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 
@@ -90,11 +91,13 @@ func closeGhostsDNW() {
 }
 
 type DNW struct {
-	mutex  sync.Mutex
-	port   serial.Port
-	info   *enumerator.PortDetails
+	port serial.Port
+	info *enumerator.PortDetails
+
 	buffer *crunchio.Buffer //Used for writing the message queue
 	reader *crunchio.Buffer //Clone for reading the message queue
+
+	mutex  sync.Mutex
 	closed bool
 }
 
@@ -214,8 +217,12 @@ func (dnw *DNW) WriteMsg(msg *Message) error {
 	defer r.Close()
 	r.Seek(0, io.SeekEnd) //Seek to the end of the buffer to only process new responses after writing each block*/
 
-	//Write on loop until the end of message or error
 	blockSize := 512
+	if runtime.GOOS == "windows" {
+		blockSize = 10240 //Windows has a known-large buffer size that remains stable over serial
+	}
+
+	//Write on loop until the end of message or error
 	wrote := 0
 	left := blockSize
 	for {
