@@ -48,7 +48,7 @@ DNW:
 
 const (
 	app = "Tensor-USBDL"
-	ver = "v0.0.3"
+	ver = "v0.1.0"
 	dev = "JoshuaDoes"
 )
 
@@ -93,55 +93,54 @@ var (
 
 func usage() {
 	prog := strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0]))
-	text := fmt.Sprintf("\n -> %s %s - %s <-\n\n"+
+	text := fmt.Sprintf(
 		" Tensor USB Downloader is a tool to send bootloaders over serial USB to a"+
-		" connected Google Pixel device in Exynos USB Boot mode."+
-		"\n"+
-		" By default, we look for all specified images in a relative folder named '%s'.\n"+
-		" If available, the factory bootloader image will be used first, and defaults to '%s'.\n"+
-		" In lieu of that, an OTA payload may be used instead, defaulting to '%s'.\n"+
-		" Lastly, we try to discover the individual images, named to match their counterparts (as available in"+
-		" both a factory images ZIP's embedded images ZIP as well as an OTA payload).\n"+
-		"\n"+
-		" When specifying a factory bootloader image, you must provide the path to either the raw image itself"+
-		" or a factory images ZIP containing the bootloader image.\n"+
-		" When specifying an OTA payload, you must provide the path to either the payload image itself or an OTA"+
-		" ZIP containing the payload image.\n"+
-		"\n"+
-		" Usage of %s:\n"+
-		" -h, --help    | none   | Prints the help you see now and ignores other arguments\n"+
-		"\n"+
-		" > Sources\n"+
-		" -i, --src     | string | Directory with bootloader images to serve         | %s\n"+
-		" -f, --factory | string | FBPK (FastBoot PacK) v2 bootloader image to serve | %s\n"+
-		" -o, --ota     | string | OTA payload to serve                              | %s\n"+
-		" -u, --ufs     | string | UFS image to serve                                | %s\n"+
-		" --partition0  | string | 1st UFS LUN to serve                              | %s\n"+
-		" --partition1  | string | 2nd UFS LUN to serve                              | %s\n"+
-		" --partition2  | string | 3rd UFS LUN to serve                              | %s\n"+
-		" --partition3  | string | 4th UFS LUN to serve                              | %s\n"+
-		" -1, --bl1     | string | BL1 image to serve                                | %s\n"+
-		" -p, --pbl     | string | PBL image to serve                                | %s\n"+
-		" -2, --bl2     | string | BL2 image to serve                                | %s\n"+
-		" -a, --abl     | string | ABL image to serve                                | %s\n"+
-		" -3, --bl31    | string | BL31 image to serve                               | %s\n"+
-		" -F, --gcf     | string | GCF image to serve                                | %s\n"+
-		" -g, --gsa     | string | GSA image to serve                                | %s\n"+
-		" -G, --gsaf    | string | GSAF image to serve                               | %s\n"+
-		" -t, --tzsw    | string | TZSW (TrustZone SoftWare) image to serve          | %s\n"+
-		" -l, --ldfw    | string | LDFW (LoaDable FirmWare) image to serve           | %s\n"+
-		" --ufsfwupdate | string | UFS firmware update image to serve                | %s\n"+
-		" -d, --dpm     | string | DPM image to serve instead of zeroed 12KB\n"+
-		"\n"+
-		" > Controls\n"+
-		" --address     | hex    | Target download address (or command) to write to             | %X\n"+
-		" --header      | number | Number of bytes to interpret as header for splittable images | %d\n"+
-		" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW messages\n"+
-		" --dnw         | none   | Overrides the download address (or command) to %X\n"+
-		" --usb         | none   | Sets the 1040th byte to 01 if it is 00\n"+
-		" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n"+
-		" --stop        | none   | Sends the DNW STOP command to the device upon connection\n",
-		app, ver, dev,
+			" connected Google Pixel device in Exynos USB Boot mode."+
+			"\n"+
+			" By default, we look for all specified images in a relative folder named '%s'.\n"+
+			" If available, the factory bootloader image will be used first, and defaults to '%s'.\n"+
+			" In lieu of that, an OTA payload may be used instead, defaulting to '%s'.\n"+
+			" Lastly, we try to discover the individual images, named to match their counterparts (as available in"+
+			" both a factory images ZIP's embedded images ZIP as well as an OTA payload).\n"+
+			"\n"+
+			" When specifying a factory bootloader image, you must provide the path to either the raw image itself"+
+			" or a factory images ZIP containing the bootloader image.\n"+
+			" When specifying an OTA payload, you must provide the path to either the payload image itself or an OTA"+
+			" ZIP containing the payload image.\n"+
+			"\n"+
+			" Usage of %s:\n"+
+			" -h, --help    | none   | Prints the help you see now and ignores other arguments\n"+
+			"\n"+
+			" > Sources\n"+
+			" -i, --src     | string | Directory with bootloader images to serve         | %s\n"+
+			" -f, --factory | string | FBPK (FastBoot PacK) v2 bootloader image to serve | %s\n"+
+			" -o, --ota     | string | OTA payload to serve                              | %s\n"+
+			" -u, --ufs     | string | UFS image to serve                                | %s\n"+
+			" --partition0  | string | 1st UFS LUN to serve                              | %s\n"+
+			" --partition1  | string | 2nd UFS LUN to serve                              | %s\n"+
+			" --partition2  | string | 3rd UFS LUN to serve                              | %s\n"+
+			" --partition3  | string | 4th UFS LUN to serve                              | %s\n"+
+			" -1, --bl1     | string | BL1 image to serve                                | %s\n"+
+			" -p, --pbl     | string | PBL image to serve                                | %s\n"+
+			" -2, --bl2     | string | BL2 image to serve                                | %s\n"+
+			" -a, --abl     | string | ABL image to serve                                | %s\n"+
+			" -3, --bl31    | string | BL31 image to serve                               | %s\n"+
+			" -F, --gcf     | string | GCF image to serve                                | %s\n"+
+			" -g, --gsa     | string | GSA image to serve                                | %s\n"+
+			" -G, --gsaf    | string | GSAF image to serve                               | %s\n"+
+			" -t, --tzsw    | string | TZSW (TrustZone SoftWare) image to serve          | %s\n"+
+			" -l, --ldfw    | string | LDFW (LoaDable FirmWare) image to serve           | %s\n"+
+			" --ufsfwupdate | string | UFS firmware update image to serve                | %s\n"+
+			" -d, --dpm     | string | DPM image to serve instead of zeroed 12KB\n"+
+			"\n"+
+			" > Controls\n"+
+			" --address     | hex    | Target download address (or command) to write to             | %X\n"+
+			" --header      | number | Number of bytes to interpret as header for splittable images | %d\n"+
+			" -c, --crc     | hex    | Overrides the calculated CRC when writing DNW messages\n"+
+			" --dnw         | none   | Overrides the download address (or command) to %X\n"+
+			" --usb         | none   | Sets the 1040th byte to 01 if it is 00\n"+
+			" --fuzzdpm     | none   | (DANGEROUS!) Fuzzes an empty DPM image with random data\n"+
+			" --stop        | none   | Sends the DNW STOP command to the device upon connection\n",
 		src, factory, ota,
 		prog,
 		src, factory, ota,
@@ -152,6 +151,8 @@ func usage() {
 }
 
 func main() {
+	fmt.Printf("%s %s - %s\n", app, ver, dev)
+
 	pflag.Usage = usage
 	pflag.CommandLine.SortFlags = false
 	pflag.BoolVarP(&help, "help", "h", false, "")
