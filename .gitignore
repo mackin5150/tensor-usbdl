@@ -1,0 +1,36 @@
+# Bootloader sources
+sources
+
+# Output binaries
+*.exe
+tensor-usbdl
+tensor-usbdl.exe
+
+# Test files
+test_*.img
+large_*.img
+*.bin
+*.img
+
+# Logs
+logs
+*.log
+
+# Go build cache
+/vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
