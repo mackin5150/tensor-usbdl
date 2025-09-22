@@ -5,6 +5,7 @@ go 1.23.4
 require (
 	github.com/JoshuaDoes/crunchio v0.0.4
 	github.com/JoshuaDoes/logger v0.0.1
+	github.com/google/gousb v1.1.3
 	go.bug.st/serial v1.6.2
 )
 

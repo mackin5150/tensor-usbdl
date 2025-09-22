@@ -18,7 +18,7 @@ if %errorlevel% neq 0 (
 )
 
 echo [3/4] Building release version...
-go build -ldflags "-s -w" -o tensor-usbdl-gs101.exe main.go gs101_usb.go
+go build -ldflags "-s -w" -o tensor-usbdl-gs101.exe main.go
 if %errorlevel% neq 0 (
     echo ERROR: Release build failed
     pause
@@ -26,12 +26,13 @@ if %errorlevel% neq 0 (
 )
 
 echo [4/4] Building debug version...  
-go build -o tensor-usbdl-gs101-debug.exe main.go gs101_usb.go
+go build -o tensor-usbdl-gs101-debug.exe main.go
 if %errorlevel% neq 0 (
     echo ERROR: Debug build failed
     pause
     exit /b 1
 )
+
 
 echo.
 echo ===================================
