@@ -1,8 +1,0 @@
-# Bootloader sources
-sources
-
-# Output binaries
-*.exe
-
-# Logs
-logs
