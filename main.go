@@ -174,7 +174,7 @@ func flashUSB(data []byte, bootloaderPath string) error {
 	
 	// Read response/status
 	fmt.Println("Reading device response...")
-	status, err := gs101.ReadStatus()
+	status, err := gs101.ReadInterrupt()
 	if err != nil {
 		fmt.Printf("Warning: could not read status: %v\n", err)
 	} else {
