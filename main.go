@@ -6,19 +6,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	
+	"time"
+
 	"github.com/JoshuaDoes/tensor-usbdl/tensorutils"
+	"github.com/google/gousb"
 )
 
 const (
 	VERSION = "1.0.0-GS101"
 	BANNER = `
-████████╗███████╗███╗   ██╗███████╗ ██████╗ ██████╗       ██╗   ██╗███████╗██████╗ ██╗     
-╚══██╔══╝██╔════╝████╗  ██║██╔════╝██╔═══██╗██╔══██╗      ██║   ██║██╔════╝██╔══██╗██║     
-   ██║   █████╗  ██╔██╗ ██║███████╗██║   ██║██████╔╝█████╗██║   ██║███████╗██████╔╝██║     
-   ██║   ██╔══╝  ██║╚██╗██║╚════██║██║   ██║██╔══██╗╚════╝██║   ██║╚════██║██╔══██╗██║     
-   ██║   ███████╗██║ ╚████║███████║╚██████╔╝██║  ██║      ╚██████╔╝███████║██████╔╝███████╗
-   ╚═╝   ╚══════╝╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝       ╚═════╝ ╚══════╝╚═════╝ ╚══════╝
+████████╗███████╗███╗  ██╗███████╗ ██████╗ ██████╗      ██╗  ██╗███████╗██████╗ ██╗      
+╚══██╔══╝██╔════╝████╗ ██║██╔════╝██╔═══██╗██╔══██╗     ██║  ██║██╔════╝██╔══██╗██║      
+   ██║   █████╗  ██╔██╗ ██║███████╗██║  ██║██████╔╝█████╗██║  ██║███████╗██████╔╝██║      
+   ██║   ██╔══╝  ██║╚██╗██║╚════██║██║  ██║██╔══██╗╚════╝██║  ██║╚════██║██╔══██╗██║      
+   ██║   ███████╗██║ ╚████║███████║╚██████╔╝██║  ██║     ╚██████╔╝███████║██████╔╝███████╗
+   ╚═╝   ╚══════╝╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝      ╚═════╝ ╚══════╝╚═════╝ ╚══════╝
 
 GS101 Pixel 6a Emergency USB Download Tool v%s
 Based on keyholes.txt endpoint analysis - First successful Pixel 6a unbrick!
@@ -28,9 +30,9 @@ Based on keyholes.txt endpoint analysis - First successful Pixel 6a unbrick!
 type FlashMode int
 
 const (
-	ModeSerial FlashMode = iota  // Original DNW serial mode
-	ModeUSB                      // New USB bulk transfer mode  
-	ModeAuto                     // Auto-detect best mode
+	ModeSerial FlashMode = iota // Original DNW serial mode
+	ModeUSB                     // New USB bulk transfer mode  
+	ModeAuto                    // Auto-detect best mode
 )
 
 func main() {
@@ -95,14 +97,14 @@ Commands:
   flash <bootloader_path> [mode]  Flash bootloader to GS101 device
                                   Modes: serial, usb, auto (default: auto)
   detect                          Detect and list compatible devices
-  test                           Test USB endpoints communication
+  test                            Test USB endpoints communication
 
 Examples:
-  tensor-usbdl flash pbl.img                    # Auto-detect mode
-  tensor-usbdl flash pbl.img usb                # Force USB bulk mode  
-  tensor-usbdl flash pbl.img serial             # Force serial DNW mode
-  tensor-usbdl detect                           # List devices
-  tensor-usbdl test                             # Test endpoints
+  tensor-usbdl flash pbl.img              # Auto-detect mode
+  tensor-usbdl flash pbl.img usb          # Force USB bulk mode  
+  tensor-usbdl flash pbl.img serial       # Force serial DNW mode
+  tensor-usbdl detect                     # List devices
+  tensor-usbdl test                       # Test endpoints
 
 Supported bootloader files:
   - pbl.img (Primary bootloader)
@@ -141,13 +143,49 @@ func flashBootloader(bootloaderPath string, mode FlashMode) error {
 		err := flashUSB(data, bootloaderPath)
 		if err != nil {
 			fmt.Printf("USB mode failed (%v), trying serial mode...\n", err)
-			return flashSerial(data, bootloaderPath) 
+			return flashSerial(data, bootloaderPath)  
 		}
 		return nil
 		
 	default:
 		return fmt.Errorf("unknown flash mode")
 	}
+}
+
+// resetAndReconnect attempts to reset the device and re-establish a connection.
+func resetAndReconnect() (*tensorutils.GS101Device, error) {
+	ctx := gousb.NewContext()
+	
+	devs, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
+		return desc.Vendor == gousb.ID(tensorutils.GS101_VID) && desc.Product == gousb.ID(tensorutils.GS101_PID)
+	})
+	if err != nil {
+		ctx.Close()
+		return nil, fmt.Errorf("error opening devices for reset: %w", err)
+	}
+	if len(devs) == 0 {
+		ctx.Close()
+		return nil, fmt.Errorf("no GS101 device found for reset")
+	}
+	dev := devs[0]
+	for _, d := range devs[1:] {
+		d.Close()
+	}
+
+	fmt.Println("Attempting a full USB device reset...")
+	if err := dev.Reset(); err != nil {
+		dev.Close()
+		ctx.Close()
+		return nil, fmt.Errorf("failed to reset device: %w", err)
+	}
+	dev.Close() // Close the device after reset
+	ctx.Close() // Close the context
+
+	// Wait for the device to re-enumerate
+	time.Sleep(2 * time.Second)
+
+	fmt.Println("✅ Device reset successful. Reconnecting...")
+	return tensorutils.NewGS101Device()
 }
 
 func flashUSB(data []byte, bootloaderPath string) error {
@@ -166,10 +204,28 @@ func flashUSB(data []byte, bootloaderPath string) error {
 	
 	fmt.Println("Connected to:", gs101.GetDeviceInfo())
 	
-	// Send bootloader 
+	// Send bootloader  
 	err = gs101.WriteBootloader(data)
 	if err != nil {
-		return fmt.Errorf("failed to write bootloader: %v", err)
+		// Check if the error is a severe stall
+		if err == tensorutils.ErrStall {
+			fmt.Println("A severe stall was detected. Attempting to reset the device and retry.")
+			gs101.Close() // Must close the device before resetting
+			
+			gs101, err = resetAndReconnect()
+			if err != nil {
+				return fmt.Errorf("failed to reset and reconnect: %w", err)
+			}
+			defer gs101.Close() // Defer closing the new device
+
+			// Retry the bootloader write on the new connection
+			fmt.Println("Retrying bootloader flash on the reset device...")
+			if err := gs101.WriteBootloader(data); err != nil {
+				return fmt.Errorf("failed to write bootloader after reset: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to write bootloader: %w", err)
+		}
 	}
 	
 	// Read response/status
@@ -264,6 +320,10 @@ func testEndpoints() {
 	n, err := gs101.Write(testData)
 	if err != nil {
 		fmt.Printf("❌ Write test failed: %v\n", err)
+		if err == tensorutils.ErrStall {
+			fmt.Println("Write failed due to severe stall. Please re-run the test to see if a device reset is required.")
+			return
+		}
 	} else {
 		fmt.Printf("✅ Write test passed: %d bytes sent\n", n)
 	}
@@ -287,5 +347,5 @@ func testEndpoints() {
 		fmt.Printf("✅ Interrupt test passed: %d bytes received: %x\n", len(intData), intData)
 	}
 	
-	fmt.Println("\n🎯 Endpoint testing completed!")
+	fmt.Println("\n🎯 Endpoints test completed.")
 }
