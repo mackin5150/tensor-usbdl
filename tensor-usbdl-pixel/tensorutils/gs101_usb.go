@@ -2,6 +2,7 @@ package tensorutils
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/gousb"
@@ -12,35 +13,43 @@ const (
 	GS101_PID = 0x4f00
 
 	GS101_EP_OUT = 0x02
-	GS101_EP_IN  = 0x81
+	GS101_EP_IN = 0x81
 	GS101_EP_INT = 0x83
 
 	GS101_BULK_PKT_SIZE = 512
-	GS101_INT_PKT_SIZE  = 10
+	GS101_INT_PKT_SIZE = 10
 
 	GS101_CONFIG = 1
-	GS101_IFACE  = 1
-	GS101_ALT    = 0
+	GS101_BULK_IFACE = 1
+	GS101_INT_IFACE = 0
+	GS101_ALT = 0
 
 	GS101_TIMEOUT = 5 * time.Second
+
+	// USB Control Request values for ClearFeature
+	LIBUSB_REQUEST_TYPE_STANDARD = 0x00
+	LIBUSB_RECIPIENT_ENDPOINT = 0x02
+	LIBUSB_REQUEST_CLEAR_FEATURE = 0x01
+	LIBUSB_ENDPOINT_HALT = 0x00
 )
 
 type GS101Device struct {
-	ctx    *gousb.Context
-	dev    *gousb.Device
-	cfg    *gousb.Config
-	intf   *gousb.Interface
-	outEp  *gousb.OutEndpoint
-	inEp   *gousb.InEndpoint
-	intEp  *gousb.InEndpoint
+	ctx *gousb.Context
+	dev *gousb.Device
+	cfg *gousb.Config
+	bulkIntf *gousb.Interface
+	intIntf *gousb.Interface
+	outEp *gousb.OutEndpoint
+	inEp *gousb.InEndpoint
+	intEp *gousb.InEndpoint
 	closed bool
-	info   string
+	info string
 }
 
 // NewGS101Device initializes the GS101 USB device connection.
 func NewGS101Device() (*GS101Device, error) {
 	ctx := gousb.NewContext()
-
+	
 	// Open devices matching VID and PID, close others
 	devs, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		return desc.Vendor == gousb.ID(GS101_VID) && desc.Product == gousb.ID(GS101_PID)
@@ -58,86 +67,88 @@ func NewGS101Device() (*GS101Device, error) {
 		d.Close()
 	}
 
-	// Ensure device is closed on error to avoid leak
-	defer func() {
-		if dev != nil {
-			dev.Close()
-		}
-	}()
-
-	// Explicitly set configuration (recommended)
-	if err := dev.SetConfig(GS101_CONFIG); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("failed to set configuration %d: %w", GS101_CONFIG, err)
-	}
-
-	// Claim interface and alt setting
-	if err := dev.ClaimInterface(GS101_IFACE); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("failed to claim interface %d: %w", GS101_IFACE, err)
-	}
-
-	intf, err := dev.Config(GS101_CONFIG)
+	// Open the configuration
+	cfg, err := dev.Config(GS101_CONFIG)
 	if err != nil {
-		dev.ReleaseInterface(GS101_IFACE)
+		dev.Close()
 		ctx.Close()
-		return nil, fmt.Errorf("failed to get config %d: %w", GS101_CONFIG, err)
+		return nil, fmt.Errorf("failed to open configuration %d: %w", GS101_CONFIG, err)
+	}
+	
+	// Open bulk data interface
+	bulkIntf, err := cfg.Interface(GS101_BULK_IFACE, GS101_ALT)
+	if err != nil {
+		cfg.Close()
+		dev.Close()
+		ctx.Close()
+		return nil, fmt.Errorf("failed to open bulk interface %d alt %d: %w", GS101_BULK_IFACE, GS101_ALT, err)
 	}
 
-	// Get the interface instance
-	iface, err := intf.Interface(GS101_IFACE, GS101_ALT)
+	// Open interrupt data interface
+	intIntf, err := cfg.Interface(GS101_INT_IFACE, GS101_ALT)
 	if err != nil {
-		intf.Close()
-		dev.ReleaseInterface(GS101_IFACE)
+		bulkIntf.Close()
+		cfg.Close()
+		dev.Close()
 		ctx.Close()
-		return nil, fmt.Errorf("failed to get interface %d alt %d: %w", GS101_IFACE, GS101_ALT, err)
+		return nil, fmt.Errorf("failed to open interrupt interface %d alt %d: %w", GS101_INT_IFACE, GS101_ALT, err)
 	}
 
-	// Acquire endpoints by endpoint number (low nibble)
-	outEp, err := iface.OutEndpoint(int(GS101_EP_OUT & 0x0f))
+	// Acquire bulk endpoints from the bulk interface
+	outEp, err := bulkIntf.OutEndpoint(int(GS101_EP_OUT & 0x0f))
 	if err != nil {
-		iface.Close()
-		intf.Close()
-		dev.ReleaseInterface(GS101_IFACE)
+		intIntf.Close()
+		bulkIntf.Close()
+		cfg.Close()
+		dev.Close()
 		ctx.Close()
 		return nil, fmt.Errorf("failed to open OUT endpoint 0x%02x: %w", GS101_EP_OUT, err)
 	}
 
-	inEp, err := iface.InEndpoint(int(GS101_EP_IN & 0x0f))
+	inEp, err := bulkIntf.InEndpoint(int(GS101_EP_IN & 0x0f))
 	if err != nil {
-		iface.Close()
-		intf.Close()
-		dev.ReleaseInterface(GS101_IFACE)
+		outEp.Close()
+		intIntf.Close()
+		bulkIntf.Close()
+		cfg.Close()
+		dev.Close()
 		ctx.Close()
 		return nil, fmt.Errorf("failed to open IN endpoint 0x%02x: %w", GS101_EP_IN, err)
 	}
-
-	intEp, err := iface.InEndpoint(int(GS101_EP_INT & 0x0f))
+	
+	// Acquire interrupt endpoint from the interrupt interface
+	intEp, err := intIntf.InEndpoint(int(GS101_EP_INT & 0x0f))
 	if err != nil {
-		iface.Close()
-		intf.Close()
-		dev.ReleaseInterface(GS101_IFACE)
+		inEp.Close()
+		outEp.Close()
+		intIntf.Close()
+		bulkIntf.Close()
+		cfg.Close()
+		dev.Close()
 		ctx.Close()
 		return nil, fmt.Errorf("failed to open interrupt IN endpoint 0x%02x: %w", GS101_EP_INT, err)
 	}
-
-	// Now device is successfully opened; cancel defer close after here
-	devCopy := dev
-	dev = nil
-
+	
+	serial, err := dev.SerialNumber()
+	if err != nil {
+		serial = "unknown"
+	}
+	
 	gs101 := &GS101Device{
-		ctx:    ctx,
-		dev:    devCopy,
-		cfg:    intf.Config(),
-		intf:   iface,
-		outEp:  outEp,
-		inEp:   inEp,
-		intEp:  intEp,
+		ctx: ctx,
+		dev: dev,
+		cfg: cfg,
+		bulkIntf: bulkIntf,
+		intIntf: intIntf,
+		outEp: outEp,
+		inEp: inEp,
+		intEp: intEp,
 		closed: false,
-		info:   fmt.Sprintf("GS101 Device - VID:PID=%04X:%04X Serial:%s", GS101_VID, GS101_PID, devCopy.SerialNumber()),
+		info: fmt.Sprintf("GS101 Device - VID:PID=%04X:%04X Serial:%s", GS101_VID, GS101_PID, serial),
 	}
 
 	fmt.Println("✅ GS101 device connected:", gs101.info)
+
 	return gs101, nil
 }
 
@@ -147,14 +158,16 @@ func (gs101 *GS101Device) Close() error {
 		return nil
 	}
 	gs101.closed = true
-	if gs101.intf != nil {
-		gs101.intf.Close()
+	if gs101.intIntf != nil {
+		gs101.intIntf.Close()
+	}
+	if gs101.bulkIntf != nil {
+		gs101.bulkIntf.Close()
 	}
 	if gs101.cfg != nil {
 		gs101.cfg.Close()
 	}
 	if gs101.dev != nil {
-		gs101.dev.ReleaseInterface(GS101_IFACE)
 		gs101.dev.Close()
 	}
 	if gs101.ctx != nil {
@@ -164,26 +177,77 @@ func (gs101 *GS101Device) Close() error {
 	return nil
 }
 
-// Write sends data to bulk OUT endpoint with timeout
+// clearStall sends a control request to clear the stall condition on an endpoint.
+func (gs101 *GS101Device) clearStall(ep *gousb.Endpoint) error {
+	if gs101.closed {
+		return fmt.Errorf("device closed")
+	}
+
+	// This is a standard USB control transfer to clear the HALT feature on an endpoint.
+	// bmRequestType: Standard (0x00), Recipient Endpoint (0x02) -> 0x02
+	// bRequest: ClearFeature (0x01)
+	// wValue: Endpoint Halt (0x00)
+	// wIndex: Endpoint Address (e.g., 0x02 for OUT, 0x81 for IN)
+	// data: nil
+	_, err := gs101.dev.Control(
+		(LIBUSB_REQUEST_TYPE_STANDARD | LIBUSB_RECIPIENT_ENDPOINT),
+		LIBUSB_REQUEST_CLEAR_FEATURE,
+		LIBUSB_ENDPOINT_HALT,
+		uint16(ep.Desc.Address),
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to clear stall on endpoint 0x%02x: %w", ep.Desc.Address, err)
+	}
+	return nil
+}
+
+// Write sends data to bulk OUT endpoint, with a retry after stall.
 func (gs101 *GS101Device) Write(data []byte) (int, error) {
 	if gs101.closed {
 		return 0, fmt.Errorf("device closed")
 	}
 	n, err := gs101.outEp.Write(data)
 	if err != nil {
-		return n, fmt.Errorf("write to OUT endpoint failed: %w", err)
+		if strings.Contains(err.Error(), "endpoint stalled") {
+			fmt.Printf("⚠️ Endpoint 0x%02x stalled. Attempting to clear stall...\n", gs101.outEp.Desc.Address)
+			if clearErr := gs101.clearStall(gs101.outEp.Endpoint); clearErr != nil {
+				return n, fmt.Errorf("failed to clear stall on endpoint 0x%02x: %w", gs101.outEp.Desc.Address, clearErr)
+			}
+			fmt.Println("✅ Stall cleared. Retrying write...")
+			// Retry the write after clearing the stall
+			n, err = gs101.outEp.Write(data)
+			if err != nil {
+				return n, fmt.Errorf("write to OUT endpoint failed after stall clear: %w", err)
+			}
+		} else {
+			return n, fmt.Errorf("write to OUT endpoint failed: %w", err)
+		}
 	}
 	return n, nil
 }
 
-// Read reads data from the bulk IN endpoint with timeout
+// Read reads data from the bulk IN endpoint, with a retry after stall.
 func (gs101 *GS101Device) Read(buf []byte) (int, error) {
 	if gs101.closed {
 		return 0, fmt.Errorf("device closed")
 	}
 	n, err := gs101.inEp.Read(buf)
 	if err != nil {
-		return n, fmt.Errorf("read from IN endpoint failed: %w", err)
+		if strings.Contains(err.Error(), "endpoint stalled") {
+			fmt.Printf("⚠️ Endpoint 0x%02x stalled. Attempting to clear stall...\n", gs101.inEp.Desc.Address)
+			if clearErr := gs101.clearStall(gs101.inEp.Endpoint); clearErr != nil {
+				return n, fmt.Errorf("failed to clear stall on endpoint 0x%02x: %w", gs101.inEp.Desc.Address, clearErr)
+			}
+			fmt.Println("✅ Stall cleared. Retrying read...")
+			// Retry the read after clearing the stall
+			n, err = gs101.inEp.Read(buf)
+			if err != nil {
+				return n, fmt.Errorf("read from IN endpoint failed after stall clear: %w", err)
+			}
+		} else {
+			return n, fmt.Errorf("read from IN endpoint failed: %w", err)
+		}
 	}
 	return n, nil
 }
